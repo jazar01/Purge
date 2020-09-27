@@ -31,7 +31,7 @@ or backup files.
 Future consideration:  Send an alert via email if no new files are found for x days.
    While this sounds like a good idea, it might be better off in a separate utility.
    
-##<This is a work in progress.  A working version should be checked in around October 2020.>
+#This is a work in progress.  A working version should be checked in around October 2020.
 
 
 #Usage:
