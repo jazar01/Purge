@@ -10,7 +10,7 @@ in numbers over time, like log files for example.
 
 If you have a backup scheduled on a certain frequency, say "Daily".  Lets also say the
 backup file is zipped and has a name that includes the date, something like this:
-"Finance Backup September 25, 2020 04:00".    These files accumulate on a network or
+"Finance Backup September 25, 2020 04:00.zip".    These files accumulate on a network or
 external drive until deleted.  The standard delete commands usually have a parameter 
 that allows for deleting files older than a certain date or even a number of days old. 
  
