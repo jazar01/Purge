@@ -8,7 +8,7 @@ namespace Purge
     class FileList
     {
         private FileInfo[] fileInfoList;  // list of raw FileInfo's 
-        public List<FileEntry> Items {get; set;}
+        public List<FileEntry> Items { get; set; }
 
         /// <summary>
         /// Constructor 
@@ -19,7 +19,7 @@ namespace Purge
             string directory = Path.GetDirectoryName(fileSpec);
             string fileName = Path.GetFileName(fileSpec);
 
-            if (string.IsNullOrWhiteSpace(directory))   
+            if (string.IsNullOrWhiteSpace(directory))
                 directory = Environment.CurrentDirectory;
 
             try  // TODO - Change this to let the exceptions bubble up
@@ -28,15 +28,13 @@ namespace Purge
                 DirectoryInfo di = new DirectoryInfo(directory);
                 fileInfoList = di.GetFiles(fileName, SearchOption.TopDirectoryOnly);
             }
-            catch( DirectoryNotFoundException)
+            catch (DirectoryNotFoundException)
             {
-                Console.WriteLine("Directory not found: " + directory);
-                Console.ReadKey();
-                System.Environment.Exit(01);
+                throw (new DirectoryNotFoundException(directory));
             }
-            catch( Exception e)
+            catch (Exception)
             {
-                Console.WriteLine("FileSpec Error: " + e.Message);
+                throw (new FileNotFoundException(fileSpec));
             }
 
             GetFileList();
@@ -109,8 +107,8 @@ namespace Purge
                 int counter = 0;
                 if (Items.Count > 0)
                     foreach (FileEntry file in Items)
-                         if (!file.IsCandidate)
-                             counter++;
+                        if (!file.IsCandidate)
+                            counter++;
 
                 return counter;
             }
@@ -139,14 +137,14 @@ namespace Purge
         private void UnMarkFiles(int count)
         {
             if (Items.Count > 0 && count > 0) // make sure there is something valid to do
-              foreach (FileEntry file in Items)  // Items are already sorted by age
-                if (file.IsCandidate)
-                {
-                    file.IsCandidate = false;
-                    count--;
-                    if (count == 0)
-                        return;
-                }
+                foreach (FileEntry file in Items)  // Items are already sorted by age
+                    if (file.IsCandidate)
+                    {
+                        file.IsCandidate = false;
+                        count--;
+                        if (count == 0)
+                            return;
+                    }
         }
     }
 }

@@ -27,10 +27,10 @@ and filename pattern, if they meet the age AND number criteria.
 
 The Purge utility also has the option to securely wipe files as they are deleted by 
 overwriting the file with random bytes.  This is useful for wiping sensitive log files
-or backup files.
-
-Future consideration:  Send an alert via email if no new files are found for x days.
-   While this sounds like a good idea, it might be better off in a separate utility.
+or backup files.  Setting the security level to a number higher than zero causes the 
+files to be overwritten with random bytes, which is much slower than simply deleting the 
+files.  The higher the security level, the longer it will take to purge each file.  Large
+files can take a significant amount of time to completely overwrite.  
 
 <This is a work in progress.  A working version should be checked in around October 2020.>
 

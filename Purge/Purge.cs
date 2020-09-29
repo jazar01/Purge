@@ -1,7 +1,6 @@
 ﻿using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using System.Diagnostics.Contracts;
 
 namespace Purge
 {
@@ -10,14 +9,14 @@ namespace Purge
     /// Get parameters and then call the purgeprocessor
     /// </summary>
     class Purge
-    { 
+    {
         static int Main(string[] args)
         {
             var rootCommand = new RootCommand
             {
                 new Option<int>(
                     aliases: new string[]{"--keep-number", "-n" },
-                    getDefaultValue: () => 0,  
+                    getDefaultValue: () => 0,
                     description: "Keep at least this number of files."),
                 new Option<int>(
                     aliases: new string[]{"--keep-days", "-d" },
@@ -37,11 +36,11 @@ namespace Purge
                     aliases: new string[]{"--prompt", "-p"},
                     "Prompt for confirmation before deleting each file."),
 
-                new Argument<string>("FileSpec", 
+                new Argument<string>("FileSpec",
                     description: "File search pattern. ex. test*.zip" )
             };
 
-            rootCommand.Description = "Advance file purging";
+            rootCommand.Description = "Advanced file purging";
 
             rootCommand.Handler = CommandHandler.Create<int, int, int, bool, bool, bool, string>
                 ((keepNumber,

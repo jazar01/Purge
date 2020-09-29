@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 
 namespace Purge
 {
@@ -16,9 +17,30 @@ namespace Purge
         /// <param name="fileSpec"></param>
         public PurgeProcessor(int keepNumber, int keepDays, int securityLevel, bool whatIf, bool force, bool prompt, string fileSpec)
         {
+            DateTime startTime = DateTime.Now;
             //TODO determine error handling
+            FileList fileList;
+            try
+            {
+                fileList = new FileList(fileSpec);           // build the list of files matching
+            }
+            catch (DirectoryNotFoundException e)
+            {
+                Console.WriteLine("Directory not found: " + e.Message);
+                return;
+            }
+            catch (FileNotFoundException e)
+            {
+                Console.WriteLine("FileSpec error: " + e.Message);
+                return;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Error: " + e.Message);
+                return;
+            }
 
-            FileList fileList = new FileList(fileSpec);           // build the list of files matching
+
             fileList.MarkFilesForDeletion(keepNumber, keepDays);  // mark the candidates for purging
 
             int keepCount = 0;
@@ -55,18 +77,38 @@ namespace Purge
 
                         // purge the file
                         if (force) File.File.IsReadOnly = false;
-                        File.wipe(securityLevel);      // TODO handle failure
+                        try
+                        {
+                            File.wipe(securityLevel);
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            if (File.File.IsReadOnly)
+                                Console.WriteLine("   Unable to purge file - ReadOnly (use --force)");
+                            else
+                                Console.WriteLine("   Unable to purge file - Access Denied");
+
+                            keepCount++;
+                            continue;
+                        }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine("   Error purging file: " + e.Message);
+                            continue;
+                        }
+
                         deleteCount++;
                     }
                 }
                 else
                     // File is not a candidate for purging
-                    keepCount++;            
+                    keepCount++;
             }
 
-            Console.WriteLine("Files purged: {0}   Files retained: {1}", deleteCount, keepCount);
+            TimeSpan elapsedTime = DateTime.Now - startTime;
+            Console.WriteLine("Files purged: {0}   Files retained: {1}   {2:f1} Seconds", deleteCount, keepCount, elapsedTime.TotalSeconds);
             if (whatIf)
-                Console.WriteLine(" NOTE:  --whatif was set, 0 files were actually purged");
+                Console.WriteLine(" NOTE:  --whatif was set, no files were actually purged");
 
         }
     }
