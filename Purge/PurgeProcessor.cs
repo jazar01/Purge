@@ -17,6 +17,7 @@ namespace Purge
         public PurgeProcessor(int keepNumber, int keepDays, int securityLevel, bool whatIf, bool force, bool prompt, string fileSpec)
         {
             //TODO determine error handling
+
             FileList fileList = new FileList(fileSpec);           // build the list of files matching
             fileList.MarkFilesForDeletion(keepNumber, keepDays);  // mark the candidates for purging
 

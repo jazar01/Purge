@@ -10,7 +10,6 @@ namespace Purge
         private FileInfo[] fileInfoList;  // list of raw FileInfo's 
         public List<FileEntry> Items {get; set;}
 
-    
         /// <summary>
         /// Constructor 
         /// </summary>
@@ -19,6 +18,10 @@ namespace Purge
         {
             string directory = Path.GetDirectoryName(fileSpec);
             string fileName = Path.GetFileName(fileSpec);
+
+            if (string.IsNullOrWhiteSpace(directory))   
+                directory = Environment.CurrentDirectory;
+
             try  // TODO - Change this to let the exceptions bubble up
                  //  I don't want console I/O coming from an class like this
             {
@@ -45,21 +48,23 @@ namespace Purge
         private void GetFileList()
         {
             Items = new List<FileEntry>();
-
-            foreach (FileInfo fi in fileInfoList)
+            if (fileInfoList.Length > 0)
             {
-                FileEntry fileEntry = new FileEntry();
+                foreach (FileInfo fi in fileInfoList)
+                {
+                    FileEntry fileEntry = new FileEntry();
 
-                fileEntry.Directory = fi.Directory;
-                fileEntry.File = fi;
-                DateTime fileDate = fi.CreationTimeUtc;
-                var Age = (DateTime.UtcNow - fi.LastWriteTimeUtc).TotalDays;
-                fileEntry.Age = (int)Age;
+                    fileEntry.Directory = fi.Directory;
+                    fileEntry.File = fi;
+                    DateTime fileDate = fi.CreationTimeUtc;
+                    var Age = (DateTime.UtcNow - fi.LastWriteTimeUtc).TotalDays;
+                    fileEntry.Age = (int)Age;
 
-                Items.Add(fileEntry);
+                    Items.Add(fileEntry);
+                }
+
+                Items.Sort((x, y) => x.Age - y.Age);  // sort Items by age
             }
-
-            Items.Sort((x, y) => x.Age - y.Age);  // sort Items by age
         }
 
         /// <summary>
@@ -70,24 +75,26 @@ namespace Purge
         /// <param name="keepDays"></param>
         public void MarkFilesForDeletion(int keepNumber, int keepDays)
         {
-
             /* *****************************************
              *  mark any files  older than keepDays    *
              * *****************************************/
-            foreach (FileEntry file in Items)
+            if (Items.Count > 0)
             {
-                if (file.Age > keepDays)
-                    file.IsCandidate = true;
-                else
-                    file.IsCandidate = false;
+                foreach (FileEntry file in Items)
+                {
+                    if (file.Age > keepDays)
+                        file.IsCandidate = true;
+                    else
+                        file.IsCandidate = false;
+                }
+
+                /* *****************************************
+                 *  make sure keepNumber files will remain *
+                 *  ****************************************/
+
+                if (keepCount < keepNumber)
+                    UnMarkFiles(keepNumber - keepCount);
             }
-
-            /* *****************************************
-             *  make sure keepNumber files will remain *
-             *  ****************************************/
-
-            if (keepCount < keepNumber)
-                UnMarkFiles(keepNumber - keepCount);   
         }
 
         /// <summary>
@@ -100,9 +107,10 @@ namespace Purge
             get
             {
                 int counter = 0;
-                foreach (FileEntry file in Items)
-                    if (!file.IsCandidate)
-                        counter++;
+                if (Items.Count > 0)
+                    foreach (FileEntry file in Items)
+                         if (!file.IsCandidate)
+                             counter++;
 
                 return counter;
             }
@@ -114,9 +122,9 @@ namespace Purge
         public override string ToString()
         {
             StringBuilder result = new StringBuilder();
-
-            foreach (FileEntry file in Items)
-                result.Append(string.Format("{0}\t{1}\t{2}\n", file.Age, file.IsCandidate, file.File.FullName));
+            if (Items.Count > 0)
+                foreach (FileEntry file in Items)
+                    result.Append(string.Format("{0}\t{1}\t{2}\n", file.Age, file.IsCandidate, file.File.FullName));
 
             result.Append(string.Format("Total count:{0}  To be Deleted:{1}   To be Kept:{2}\n", Items.Count, Items.Count - keepCount, keepCount));
             return result.ToString();
@@ -130,7 +138,8 @@ namespace Purge
         /// <param name="count"></param>
         private void UnMarkFiles(int count)
         {
-             foreach (FileEntry file in Items)  // Items are already sorted by age
+            if (Items.Count > 0 && count > 0) // make sure there is something valid to do
+              foreach (FileEntry file in Items)  // Items are already sorted by age
                 if (file.IsCandidate)
                 {
                     file.IsCandidate = false;
