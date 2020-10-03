@@ -1,4 +1,4 @@
-#Advanced file deletion
+## Advanced file deletion
 
 Utility to delete files with some advanced features.
 
@@ -31,24 +31,26 @@ or backup files.
 Future consideration:  Send an alert via email if no new files are found for x days.
    While this sounds like a good idea, it might be better off in a separate utility.
    
-#This is a work in progress.  A working version should be checked in around October 2020.
+***This is a work in progress.  A working version should be checked in around October 2020.***
 
 
-#Usage:
-  Purge [options] \<FileSpec\>
-              |  
-#Arguments:   |
-  \<FileSpec\>|                             Filespec is the full path and pattern for the files
-              |                            to be targeted for deletion.  Wildcards are allowed
-              |                            in the filename but not in the directory portion of
-              |                            the patch.
-
-#Options:     |
-  -n, --keep-number <keep-number>        | Keep at least this number of files. [default: 0]
-  -d, --keep-days <keep-days>            | Keep files that are newer than this number of days. [default: 0]
-  -s, --security-level <security-level>  | Number of passes of security overwriting. [default: 0]
-  -t, --whatif                           | Test mode, does not actually purge any files.
-  -f, --force                            | Force deletion of read-only files.
-  -p, --prompt                           | Prompt for confirmatino before deleting each file.
-  --version                              | Show version information
-  -?, -h, --help                         | Show help and usage information
+# Usage:    
+|                                        |                                                                          |
+|----------------------------------------|--------------------------------------------------------------------------|        
+|  Purge [options] \<FileSpec\>          |                                                                          |
+|                                        |                                                                          |  
+|  ***Arguments:***                      |                                                                          |
+| \<FileSpec\>                           | Filespec is the full path and pattern for the files                      |
+|                                        | to be targeted for deletion.  Wildcards are allowed                      |                     
+|                                        | in the filename but not in the directory portion of                      |
+|                                        | the patch.                                                               |
+|                                        |                                                                          |
+|  ***Options:***                        |                                                                          |
+| -n, --keep-number <keep-number>        | Keep at least this number of files. [default: 0]                         |
+| -d, --keep-days <keep-days>            | Keep files that are newer than this number of days. [default: 0]         |   
+| -s, --security-level <security-level>  | Number of passes of security overwriting. [default: 0]                   |
+| -t, --whatif                           | Test mode, does not actually purge any files.                            |
+| -f, --force                            | Force deletion of read-only files.                                       |
+| -p, --prompt                           | Prompt for confirmatino before deleting each file.                       |
+| --version                              | Show version information                                                 |
+| -?, -h, --help                         | Show help and usage information                                          |
