@@ -23,7 +23,7 @@ namespace Purge
                     getDefaultValue: () => 0,
                     description: "Keep files that are newer than this number of days."),
                 new Option<int>(
-                    aliases: new string[]{ "--security-level", "-s" },
+                    aliases: new string[]{ "--security-level", "-l" },
                     getDefaultValue: () => 0,
                     description: "Number of passes of security overwriting."),
                 new Option<bool>(
@@ -35,7 +35,6 @@ namespace Purge
                 new Option<bool>(
                     aliases: new string[]{"--prompt", "-p"},
                     "Prompt for confirmation before deleting each file."),
-
                 new Argument<string>("FileSpec",
                     description: "File search pattern. ex. test*.zip" )
             };
