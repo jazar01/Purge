@@ -2,6 +2,8 @@
 
 Utility to delete files with some advanced features.
 
+for Windows operating systems
+
 This utility was initially designed to delete backup files that are no longer needed.
 It is designed as a command line utility to be run as part of a script or scheduled
 task. There is no reason why it wouldn't be good for managing other files that grow
