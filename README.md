@@ -53,6 +53,6 @@ Future consideration:  Send an alert via email if no new files are found for x d
 | -s, --security-level <security-level>  | Number of passes of security overwriting. [default: 0]                   |
 | -t, --whatif                           | Test mode, does not actually purge any files.                            |
 | -f, --force                            | Force deletion of read-only files.                                       |
-| -p, --prompt                           | Prompt for confirmatino before deleting each file.                       |
+| -p, --prompt                           | Prompt for confirmation before deleting each file.                       |
 | --version                              | Show version information                                                 |
 | -?, -h, --help                         | Show help and usage information                                          |
