@@ -45,7 +45,7 @@ Future consideration:  Send an alert via email if no new files are found for x d
 | \<FileSpec\>                           | Filespec is the full path and pattern for the files                      |
 |                                        | to be targeted for deletion.  Wildcards are allowed                      |                     
 |                                        | in the filename but not in the directory portion of                      |
-|                                        | the patch.                                                               |
+|                                        | the path.                                                               |
 |                                        |                                                                          |
 |  ***Options:***                        |                                                                          |
 | -n, --keep-number <keep-number>        | Keep at least this number of files. [default: 0]                         |
