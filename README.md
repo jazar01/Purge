@@ -174,11 +174,18 @@ Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```
 dotnet test
-dotnet publish Purge -c Release -r win-x64 -p:PublishSingleFile=true --self-contained false -o publish
+dotnet publish Purge -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true -p:EnableCompressionInSingleFile=true -o publish
 ```
 
-Use `--self-contained true` for an exe that runs without the .NET runtime
-installed (larger file).
+This makes a single `publish\Purge.exe` (about 37 MB) that runs on any 64-bit
+Windows PC with nothing else installed. The GitHub build produces the same file
+as a downloadable artifact.
+
+For a much smaller exe (under 1 MB) that needs the .NET 10 runtime installed,
+use `--self-contained false` and leave out the compression option.
+
+Note that `Purge\bin\...\Purge.exe` from a plain `dotnet build` is only a
+launcher: it needs the `.dll` and `.json` files next to it.
 
 ## Changes in 2.3
 
