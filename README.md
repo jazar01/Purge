@@ -36,6 +36,13 @@ Future consideration:  Send an alert via email if no new files are found for x d
 
 
 
+# Download
+
+Get the latest `Purge-<version>-win-x64.zip` from the
+[Releases page](https://github.com/jazar01/Purge/releases/latest) and extract
+`Purge.exe`. It is a single file that runs on any 64-bit Windows PC with nothing
+else installed. Put it in a folder on your PATH to run `purge` from anywhere.
+
 # Usage
 
 ```
@@ -186,6 +193,21 @@ use `--self-contained false` and leave out the compression option.
 
 Note that `Purge\bin\...\Purge.exe` from a plain `dotnet build` is only a
 launcher: it needs the `.dll` and `.json` files next to it.
+
+## Making a release
+
+1. Set `<Version>` in `Purge/Purge.csproj` and add a `## Changes in <major.minor>`
+   section to this README. Merge that to master.
+2. Tag the merged commit and push the tag:
+
+   ```
+   git tag v2.4.0
+   git push origin v2.4.0
+   ```
+
+The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped exe,
+a SHA-256 checksum, and the README's changes section as release notes. The build
+fails without releasing if the tag doesn't match `<Version>`.
 
 ## Changes in 2.3
 
