@@ -46,12 +46,15 @@ Purge <FileSpec> [options]
 |---|---|
 | `<FileSpec>` | Directory and file pattern of the files to purge, e.g. `D:\Backups\Finance*.zip`. Wildcards (`*`, `?`) are allowed in the file name but not in the directory. A bare directory is rejected. |
 | `-n, --keep-number <n>` | Always keep at least this many of the newest files. [default: 0] |
-| `-d, --keep-days <n>` | Keep files modified within this many days. [default: 0] |
+| `-d, --keep-days <n>` | Keep files newer than this many days. [default: 0] |
 | `-s, -l, --security-level <n>` | Passes of random overwriting before deleting, 0-50. [default: 0] |
 | `-t, --whatif` | Test mode: show what would be purged without deleting anything. |
 | `-f, --force` | Force deletion of read-only files. |
 | `-p, --prompt` | Ask before deleting each file: **Y**es, **N**o, **A**ll remaining, **Q**uit. Needs an interactive console. |
 | `-r, --recurse` | Also purge matching files in all subfolders. Keep-number and keep-days apply to each folder separately. |
+| `--min-size <size>` | Only consider files at least this big, e.g. `500`, `10KB`, `1.5MB`, `2GB`. |
+| `--max-size <size>` | Only consider files at most this big. |
+| `--age-by <modified\|created>` | Measure age from the file's modified time (default) or created time. |
 | `--log <file>` | Append a timestamped record of this run to the file. The log file itself is never purged. |
 | `--version` | Show version information. |
 | `-?, -h, --help` | Show help and usage information. |
@@ -66,12 +69,44 @@ Run it with `--whatif` first to see what would be deleted.
 
 ## How files are chosen
 
-* A file's age is measured from its last-modified time.
+* A file's age is measured from its last-modified time, or its created time
+  with `--age-by created`.
 * Files more than `--keep-days` days old are purged, except that the newest
   `--keep-number` files are always kept. Ordering uses exact timestamps, so this
   works correctly with several backups a day.
 * Pattern matching is exact: `*.bak` matches `x.bak` but not `x.bakup`.
 * Hidden and system files that match the pattern are included.
+
+## Size limits (`--min-size`, `--max-size`)
+
+Size limits narrow which files Purge looks at, just like the file pattern.
+Files outside the limits are ignored completely: they are never purged and
+don't count toward `--keep-number`. The limits include the given sizes.
+
+Sizes are a number with an optional unit: `B`, `KB`, `MB`, `GB` or `TB`
+(1 KB = 1024 bytes; `K`, `M`, `G`, `T` also work, and case doesn't matter).
+
+For example, to keep 30 days of real backups while ignoring tiny, broken ones:
+
+```
+Purge -d 30 -n 5 --min-size 1MB "D:\Backups\*.bak"
+```
+
+and to clean up only the broken ones:
+
+```
+Purge -d 7 --max-size 1KB "D:\Backups\*.bak"
+```
+
+## Created vs. modified (`--age-by`)
+
+By default a file's age comes from its last-modified time. With
+`--age-by created` it comes from the time the file was created, and
+`--keep-number` keeps the most recently created files.
+
+Be careful with created times: Windows gives a file a new created time when it
+is copied (for example, restored from another disk), while the modified time
+is kept. A copied old backup therefore looks new with `--age-by created`.
 
 ## Subfolders (`--recurse`)
 
@@ -108,7 +143,7 @@ file:
   log is opened, so they only appear on the console.
 
 ```
-2026-11-14 04:00:01  === Purge 2.2.0 started: Purge -d 30 -n 5 --log D:\Logs\purge.log D:\Backups\*.zip
+2026-11-14 04:00:01  === Purge 2.3.0 started: Purge -d 30 -n 5 --log D:\Logs\purge.log D:\Backups\*.zip
 2026-11-14 04:00:01  Purging (age 31 days): D:\Backups\Finance 2026-10-14.zip
 2026-11-14 04:00:01  ERROR     Unable to purge D:\Backups\Finance 2026-10-13.zip - read-only (use --force)
 2026-11-14 04:00:01  Files purged: 1   Files retained: 30   Failed: 1   0.0 seconds
@@ -144,6 +179,11 @@ dotnet publish Purge -c Release -r win-x64 -p:PublishSingleFile=true --self-cont
 
 Use `--self-contained true` for an exe that runs without the .NET runtime
 installed (larger file).
+
+## Changes in 2.3
+
+* New `--min-size` and `--max-size` options to only consider files in a size range.
+* New `--age-by created` option to measure age from the created time.
 
 ## Changes in 2.2
 

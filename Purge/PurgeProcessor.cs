@@ -11,7 +11,8 @@ public sealed record PurgeOptions(
     bool Force = false,
     bool Prompt = false,
     bool Recurse = false,
-    string? ExcludeFile = null);
+    string? ExcludeFile = null,
+    FileSelection? Selection = null);
 
 /// <summary>Process exit codes, so scripts and scheduled tasks can detect problems.</summary>
 public static class ExitCodes
@@ -55,6 +56,7 @@ public sealed class PurgeProcessor
             return ExitCodes.Error;
         }
 
+        var selection = options.Selection ?? FileSelection.Default;
         int folderErrors = 0;
         IReadOnlyList<FileList> folders;
         try
@@ -64,7 +66,8 @@ public sealed class PurgeProcessor
                 {
                     _err.WriteLine($"   Skipping folder {folder.FullName} - {e.Message}");
                     folderErrors++;
-                });
+                },
+                selection: selection);
         }
         catch (Exception e) when (e is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
@@ -84,7 +87,9 @@ public sealed class PurgeProcessor
 
         if (folders.All(f => f.Items.Count == 0))
         {
-            _out.WriteLine($"No files match {options.FileSpec}" + (options.Recurse ? " in any subfolder" : ""));
+            _out.WriteLine($"No files match {options.FileSpec}" +
+                           (options.Recurse ? " in any subfolder" : "") +
+                           (selection.MinSize is not null || selection.MaxSize is not null ? " within the size limits" : ""));
             return folderErrors > 0 ? ExitCodes.PartialFailure : ExitCodes.Success;
         }
 
@@ -104,7 +109,8 @@ public sealed class PurgeProcessor
                 continue;
             }
 
-            _out.WriteLine($"{verb} (age {entry.Age} days): {entry.File.FullName}");
+            string age = selection.AgeBy == AgeBy.Created ? $"created {entry.Age} days ago" : $"age {entry.Age} days";
+            _out.WriteLine($"{verb} ({age}): {entry.File.FullName}");
 
             if (options.WhatIf)
             {

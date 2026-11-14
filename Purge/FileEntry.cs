@@ -5,19 +5,19 @@
 /// </summary>
 public sealed class FileEntry
 {
-    public FileEntry(FileInfo file, DateTime nowUtc)
+    public FileEntry(FileInfo file, DateTime nowUtc, AgeBy ageBy = AgeBy.Modified)
     {
         File = file;
-        LastWriteUtc = file.LastWriteTimeUtc;
-        AgeDays = (nowUtc - LastWriteUtc).TotalDays;
+        TimestampUtc = ageBy == AgeBy.Created ? file.CreationTimeUtc : file.LastWriteTimeUtc;
+        AgeDays = (nowUtc - TimestampUtc).TotalDays;
     }
 
     public FileInfo File { get; }
 
-    /// <summary>Exact last-modified time; used for ordering.</summary>
-    public DateTime LastWriteUtc { get; }
+    /// <summary>The exact time the age is measured from (modified or created); used for ordering.</summary>
+    public DateTime TimestampUtc { get; }
 
-    /// <summary>Exact age in (fractional) days since last modified.</summary>
+    /// <summary>Exact age in (fractional) days.</summary>
     public double AgeDays { get; }
 
     /// <summary>Age in whole days, for display.</summary>

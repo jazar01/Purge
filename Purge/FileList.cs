@@ -13,7 +13,7 @@ public sealed class FileList
         // Order by exact timestamp (not whole days) so --keep-number always keeps the
         // truly newest files, with the path as a stable tie-breaker.
         Items = items
-            .OrderByDescending(f => f.LastWriteUtc)
+            .OrderByDescending(f => f.TimestampUtc)
             .ThenBy(f => f.File.FullName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -29,10 +29,10 @@ public sealed class FileList
     /// </summary>
     /// <exception cref="ArgumentException">The spec is empty, is a directory, or has wildcards in the directory part.</exception>
     /// <exception cref="DirectoryNotFoundException">The directory does not exist.</exception>
-    public static FileList FromFileSpec(string fileSpec, DateTime nowUtc)
+    public static FileList FromFileSpec(string fileSpec, DateTime nowUtc, FileSelection? selection = null)
     {
         var (directory, pattern) = SplitFileSpec(fileSpec);
-        return FromDirectory(new DirectoryInfo(directory), pattern, nowUtc);
+        return FromDirectory(new DirectoryInfo(directory), pattern, nowUtc, selection ?? FileSelection.Default);
     }
 
     /// <summary>
@@ -46,11 +46,13 @@ public sealed class FileList
     /// subfolder are passed to <paramref name="onFolderError"/> and that folder is skipped.
     /// </remarks>
     public static IReadOnlyList<FileList> FromFileSpec(string fileSpec, DateTime nowUtc, bool recurse,
-                                                       Action<DirectoryInfo, Exception>? onFolderError = null)
+                                                       Action<DirectoryInfo, Exception>? onFolderError = null,
+                                                       FileSelection? selection = null)
     {
+        selection ??= FileSelection.Default;
         var (directory, pattern) = SplitFileSpec(fileSpec);
         var top = new DirectoryInfo(directory);
-        var lists = new List<FileList> { FromDirectory(top, pattern, nowUtc) };
+        var lists = new List<FileList> { FromDirectory(top, pattern, nowUtc, selection) };
 
         if (!recurse)
             return lists;
@@ -61,7 +63,7 @@ public sealed class FileList
             var folder = pending.Pop();
             try
             {
-                lists.Add(FromDirectory(folder, pattern, nowUtc));
+                lists.Add(FromDirectory(folder, pattern, nowUtc, selection));
                 foreach (var sub in SubfoldersOf(folder).Reverse())
                     pending.Push(sub);
             }
@@ -89,7 +91,7 @@ public sealed class FileList
               .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
               .ToList();
 
-    private static FileList FromDirectory(DirectoryInfo folder, string pattern, DateTime nowUtc)
+    private static FileList FromDirectory(DirectoryInfo folder, string pattern, DateTime nowUtc, FileSelection selection)
     {
         var options = new EnumerationOptions
         {
@@ -105,7 +107,8 @@ public sealed class FileList
         // ToList so enumeration errors surface here, not later while purging.
         var files = folder
             .EnumerateFiles(pattern, options)
-            .Select(fi => new FileEntry(fi, nowUtc))
+            .Where(selection.Includes)
+            .Select(fi => new FileEntry(fi, nowUtc, selection.AgeBy))
             .ToList();
 
         return new FileList(files);

@@ -21,7 +21,7 @@ public static class Program
 
         var keepDays = new Option<int>("--keep-days", "-d")
         {
-            Description = "Keep files modified within this many days.",
+            Description = "Keep files newer than this many days (age is from the modified time, or see --age-by).",
             DefaultValueFactory = _ => 0,
         };
         keepDays.Validators.Add(r => RequireNonNegative(r, "Keep days"));
@@ -59,6 +59,14 @@ public static class Program
             Description = "Append a timestamped record of this run to this file. The log file itself is never purged.",
             HelpName = "file",
         };
+        var minSize = SizeOption("--min-size", "Only consider files at least this big, e.g. 500, 10KB, 1.5MB, 2GB.");
+        var maxSize = SizeOption("--max-size", "Only consider files at most this big, e.g. 500, 10KB, 1.5MB, 2GB.");
+        var ageBy = new Option<AgeBy>("--age-by")
+        {
+            Description = "Measure age from the file's modified or created time.",
+            DefaultValueFactory = _ => AgeBy.Modified,
+            HelpName = "modified|created",
+        };
         var fileSpec = new Argument<string>("FileSpec")
         {
             Description = @"Directory and file pattern of the files to purge, e.g. D:\Backups\Finance*.zip",
@@ -66,8 +74,24 @@ public static class Program
 
         var root = new RootCommand("Advanced file purging: delete old files while always keeping a minimum number.")
         {
-            keepNumber, keepDays, securityLevel, whatIf, force, prompt, recurse, log, fileSpec,
+            keepNumber, keepDays, securityLevel, whatIf, force, prompt, recurse, minSize, maxSize, ageBy, log, fileSpec,
         };
+
+        root.Validators.Add(r =>
+        {
+            long? min, max;
+            try
+            {
+                min = r.GetValue(minSize);
+                max = r.GetValue(maxSize);
+            }
+            catch (InvalidOperationException)
+            {
+                return; // a size didn't parse; that error is already reported
+            }
+            if (min > max)
+                r.AddError("--min-size must not be larger than --max-size.");
+        });
 
         root.SetAction(parseResult =>
         {
@@ -79,7 +103,11 @@ public static class Program
                 WhatIf: parseResult.GetValue(whatIf),
                 Force: parseResult.GetValue(force),
                 Prompt: parseResult.GetValue(prompt),
-                Recurse: parseResult.GetValue(recurse));
+                Recurse: parseResult.GetValue(recurse),
+                Selection: new FileSelection(
+                    AgeBy: parseResult.GetValue(ageBy),
+                    MinSize: parseResult.GetValue(minSize),
+                    MaxSize: parseResult.GetValue(maxSize)));
 
             // Console.ReadKey throws when input is redirected (scheduled tasks, pipes),
             // so only offer a key reader when there is a real console to read from.
@@ -131,6 +159,20 @@ public static class Program
 
     private static string Quote(string arg) =>
         arg.Length == 0 || arg.Any(char.IsWhiteSpace) ? $"\"{arg}\"" : arg;
+
+    private static Option<long?> SizeOption(string name, string description) => new(name)
+    {
+        Description = description,
+        HelpName = "size",
+        CustomParser = result =>
+        {
+            string token = result.Tokens.Single().Value;
+            if (Size.TryParse(token, out long bytes))
+                return bytes;
+            result.AddError($"'{token}' is not a valid size for {name}. Use a number with an optional unit: B, KB, MB, GB or TB.");
+            return null;
+        },
+    };
 
     private static void RequireNonNegative(OptionResult result, string name)
     {
