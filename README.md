@@ -51,6 +51,7 @@ Purge <FileSpec> [options]
 | `-t, --whatif` | Test mode: show what would be purged without deleting anything. |
 | `-f, --force` | Force deletion of read-only files. |
 | `-p, --prompt` | Ask before deleting each file: **Y**es, **N**o, **A**ll remaining, **Q**uit. Needs an interactive console. |
+| `-r, --recurse` | Also purge matching files in all subfolders. Keep-number and keep-days apply to each folder separately. |
 | `--version` | Show version information. |
 | `-?, -h, --help` | Show help and usage information. |
 
@@ -71,13 +72,29 @@ Run it with `--whatif` first to see what would be deleted.
 * Pattern matching is exact: `*.bak` matches `x.bak` but not `x.bakup`.
 * Hidden and system files that match the pattern are included.
 
+## Subfolders (`--recurse`)
+
+With `--recurse`, the pattern is applied in the given folder and in every folder
+below it. Only files are purged; folders are never deleted, even if their name
+matches the pattern.
+
+Each folder is treated as its own set of files. For example, with
+`-r -n 5 -d 30 "D:\Backups\*.bak"` and one subfolder per database, every
+database folder keeps its own 5 newest backups. A folder with many recent files
+never causes another folder's last backups to be deleted.
+
+Folder junctions and symbolic links are not followed, so a purge can't loop or
+reach outside the folder you named. If a subfolder can't be read (for example,
+access denied), it is skipped with a warning, the rest of the purge continues,
+and the exit code is 2.
+
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Success (including "no files matched"). |
 | 1 | Bad arguments, or the directory could not be read. Nothing was deleted. |
-| 2 | One or more files could not be purged (read-only, in use, access denied). |
+| 2 | One or more files could not be purged (read-only, in use, access denied), or with `--recurse` a subfolder could not be read. |
 
 ## Secure wipe
 
@@ -97,6 +114,11 @@ dotnet publish Purge -c Release -r win-x64 -p:PublishSingleFile=true --self-cont
 
 Use `--self-contained true` for an exe that runs without the .NET runtime
 installed (larger file).
+
+## Changes in 2.1
+
+* New `-r, --recurse` option to purge matching files in subfolders, with
+  keep-number and keep-days applied per folder.
 
 ## Changes in 2.0
 

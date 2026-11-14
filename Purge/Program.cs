@@ -50,6 +50,10 @@ public static class Program
         {
             Description = "Prompt for confirmation before deleting each file.",
         };
+        var recurse = new Option<bool>("--recurse", "-r")
+        {
+            Description = "Also purge matching files in all subfolders. Keep-number and keep-days apply to each folder separately.",
+        };
         var fileSpec = new Argument<string>("FileSpec")
         {
             Description = @"Directory and file pattern of the files to purge, e.g. D:\Backups\Finance*.zip",
@@ -57,7 +61,7 @@ public static class Program
 
         var root = new RootCommand("Advanced file purging: delete old files while always keeping a minimum number.")
         {
-            keepNumber, keepDays, securityLevel, whatIf, force, prompt, fileSpec,
+            keepNumber, keepDays, securityLevel, whatIf, force, prompt, recurse, fileSpec,
         };
 
         root.SetAction(parseResult =>
@@ -69,7 +73,8 @@ public static class Program
                 SecurityLevel: parseResult.GetValue(securityLevel),
                 WhatIf: parseResult.GetValue(whatIf),
                 Force: parseResult.GetValue(force),
-                Prompt: parseResult.GetValue(prompt));
+                Prompt: parseResult.GetValue(prompt),
+                Recurse: parseResult.GetValue(recurse));
 
             // Console.ReadKey throws when input is redirected (scheduled tasks, pipes),
             // so only offer a key reader when there is a real console to read from.

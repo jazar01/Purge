@@ -32,7 +32,65 @@ public sealed class FileList
     public static FileList FromFileSpec(string fileSpec, DateTime nowUtc)
     {
         var (directory, pattern) = SplitFileSpec(fileSpec);
+        return FromDirectory(new DirectoryInfo(directory), pattern, nowUtc);
+    }
 
+    /// <summary>
+    /// Builds one list per folder: the spec's folder and, with <paramref name="recurse"/>,
+    /// every subfolder below it. Each folder is its own set for keep-number/keep-days, so
+    /// files in one folder never count toward (or against) another folder's minimum.
+    /// </summary>
+    /// <remarks>
+    /// Folder junctions and symbolic links are not followed, so the walk cannot loop or
+    /// leave the tree. Errors reading the top folder are thrown; errors reading a
+    /// subfolder are passed to <paramref name="onFolderError"/> and that folder is skipped.
+    /// </remarks>
+    public static IReadOnlyList<FileList> FromFileSpec(string fileSpec, DateTime nowUtc, bool recurse,
+                                                       Action<DirectoryInfo, Exception>? onFolderError = null)
+    {
+        var (directory, pattern) = SplitFileSpec(fileSpec);
+        var top = new DirectoryInfo(directory);
+        var lists = new List<FileList> { FromDirectory(top, pattern, nowUtc) };
+
+        if (!recurse)
+            return lists;
+
+        var pending = new Stack<DirectoryInfo>(SubfoldersOf(top).Reverse());
+        while (pending.Count > 0)
+        {
+            var folder = pending.Pop();
+            try
+            {
+                lists.Add(FromDirectory(folder, pattern, nowUtc));
+                foreach (var sub in SubfoldersOf(folder).Reverse())
+                    pending.Push(sub);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                if (onFolderError is null) throw;
+                onFolderError(folder, e);
+            }
+        }
+
+        return lists;
+    }
+
+    private static readonly EnumerationOptions FolderOptions = new()
+    {
+        RecurseSubdirectories = false,
+        IgnoreInaccessible = false,
+        AttributesToSkip = 0,
+    };
+
+    /// <summary>Immediate subfolders, sorted by name, excluding junctions and symbolic links.</summary>
+    private static IEnumerable<DirectoryInfo> SubfoldersOf(DirectoryInfo folder) =>
+        folder.EnumerateDirectories("*", FolderOptions)
+              .Where(d => !d.Attributes.HasFlag(FileAttributes.ReparsePoint))
+              .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+              .ToList();
+
+    private static FileList FromDirectory(DirectoryInfo folder, string pattern, DateTime nowUtc)
+    {
         var options = new EnumerationOptions
         {
             // Simple matching: only * and ?, and no legacy DOS quirks such as
@@ -44,9 +102,11 @@ public sealed class FileList
             AttributesToSkip = 0, // include hidden/system files, as the original version did
         };
 
-        var files = new DirectoryInfo(directory)
+        // ToList so enumeration errors surface here, not later while purging.
+        var files = folder
             .EnumerateFiles(pattern, options)
-            .Select(fi => new FileEntry(fi, nowUtc));
+            .Select(fi => new FileEntry(fi, nowUtc))
+            .ToList();
 
         return new FileList(files);
     }

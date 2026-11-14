@@ -19,6 +19,7 @@ internal sealed class TempDir : IDisposable
     public string File(string name, double ageDays, string content = "data")
     {
         string full = System.IO.Path.Combine(Path, name);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
         System.IO.File.WriteAllText(full, content);
         System.IO.File.SetLastWriteTimeUtc(full, Now.AddDays(-ageDays));
         return full;
@@ -26,10 +27,17 @@ internal sealed class TempDir : IDisposable
 
     public string[] Names() => Directory.GetFiles(Path).Select(System.IO.Path.GetFileName).Order().ToArray()!;
 
+    /// <summary>All files below the directory, as relative paths with '/' separators.</summary>
+    public string[] AllNames() =>
+        Directory.GetFiles(Path, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
+                 .Select(f => System.IO.Path.GetRelativePath(Path, f).Replace('\\', '/'))
+                 .Order(StringComparer.Ordinal)
+                 .ToArray();
+
     public void Dispose()
     {
         if (!Directory.Exists(Path)) return;
-        foreach (var f in Directory.GetFiles(Path))
+        foreach (var f in Directory.GetFiles(Path, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }))
             System.IO.File.SetAttributes(f, FileAttributes.Normal);
         Directory.Delete(Path, recursive: true);
     }

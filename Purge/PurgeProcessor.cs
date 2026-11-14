@@ -9,7 +9,8 @@ public sealed record PurgeOptions(
     int SecurityLevel = 0,
     bool WhatIf = false,
     bool Force = false,
-    bool Prompt = false);
+    bool Prompt = false,
+    bool Recurse = false);
 
 /// <summary>Process exit codes, so scripts and scheduled tasks can detect problems.</summary>
 public static class ExitCodes
@@ -20,7 +21,7 @@ public static class ExitCodes
     /// <summary>Bad arguments, or the file list could not be read. Nothing was deleted.</summary>
     public const int Error = 1;
 
-    /// <summary>One or more files could not be purged.</summary>
+    /// <summary>One or more files could not be purged, or (with --recurse) a subfolder could not be read.</summary>
     public const int PartialFailure = 2;
 }
 
@@ -53,10 +54,16 @@ public sealed class PurgeProcessor
             return ExitCodes.Error;
         }
 
-        FileList fileList;
+        int folderErrors = 0;
+        IReadOnlyList<FileList> folders;
         try
         {
-            fileList = FileList.FromFileSpec(options.FileSpec, nowUtc ?? DateTime.UtcNow);
+            folders = FileList.FromFileSpec(options.FileSpec, nowUtc ?? DateTime.UtcNow, options.Recurse,
+                onFolderError: (folder, e) =>
+                {
+                    _err.WriteLine($"   Skipping folder {folder.FullName} - {e.Message}");
+                    folderErrors++;
+                });
         }
         catch (Exception e) when (e is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
@@ -64,19 +71,21 @@ public sealed class PurgeProcessor
             return ExitCodes.Error;
         }
 
-        if (fileList.Items.Count == 0)
+        if (folders.All(f => f.Items.Count == 0))
         {
-            _out.WriteLine($"No files match {options.FileSpec}");
-            return ExitCodes.Success;
+            _out.WriteLine($"No files match {options.FileSpec}" + (options.Recurse ? " in any subfolder" : ""));
+            return folderErrors > 0 ? ExitCodes.PartialFailure : ExitCodes.Success;
         }
 
-        fileList.MarkFilesForDeletion(options.KeepNumber, options.KeepDays);
+        // Keep-number and keep-days apply to each folder separately.
+        foreach (var folder in folders)
+            folder.MarkFilesForDeletion(options.KeepNumber, options.KeepDays);
 
         int purged = 0, retained = 0, failed = 0;
         bool confirmAll = false, quit = false;
         string verb = options.WhatIf ? "Would purge" : "Purging";
 
-        foreach (var entry in fileList.Items)
+        foreach (var entry in folders.SelectMany(f => f.Items))
         {
             if (!entry.IsCandidate || quit)
             {
@@ -137,12 +146,14 @@ public sealed class PurgeProcessor
         string summary = options.WhatIf
             ? $"Files that would be purged: {purged}   Files that would be retained: {retained}"
             : $"Files purged: {purged}   Files retained: {retained}" + (failed > 0 ? $"   Failed: {failed}" : "");
+        if (folderErrors > 0)
+            summary += $"   Folders skipped: {folderErrors}";
         _out.WriteLine($"{summary}   {stopwatch.Elapsed.TotalSeconds:f1} seconds");
 
         if (options.WhatIf)
             _out.WriteLine("NOTE: --whatif was set, no files were actually purged.");
 
-        return failed > 0 ? ExitCodes.PartialFailure : ExitCodes.Success;
+        return failed > 0 || folderErrors > 0 ? ExitCodes.PartialFailure : ExitCodes.Success;
     }
 
     private char Ask()

@@ -17,7 +17,7 @@ public class CommandLineTests
     public void AllOptions_Parse()
     {
         var result = Program.BuildRootCommand().Parse(
-            ["-n", "5", "-d", "30", "-s", "3", "-t", "-f", "-p", @"C:\Backups\*.zip"]);
+            ["-n", "5", "-d", "30", "-s", "3", "-t", "-f", "-p", "-r", @"C:\Backups\*.zip"]);
         Assert.Empty(result.Errors);
     }
 
