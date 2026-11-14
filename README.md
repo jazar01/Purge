@@ -36,23 +36,79 @@ Future consideration:  Send an alert via email if no new files are found for x d
 
 
 
-# Usage:    
-|                                        |                                                                          |
-|----------------------------------------|--------------------------------------------------------------------------|        
-|  Purge [options] \<FileSpec\>          |                                                                          |
-|                                        |                                                                          |  
-|  ***Arguments:***                      |                                                                          |
-| \<FileSpec\>                           | Filespec is the full path and pattern for the files                      |
-|                                        | to be targeted for deletion.  Wildcards are allowed                      |                     
-|                                        | in the filename but not in the directory portion of                      |
-|                                        | the path.                                                               |
-|                                        |                                                                          |
-|  ***Options:***                        |                                                                          |
-| -n, --keep-number <keep-number>        | Keep at least this number of files. [default: 0]                         |
-| -d, --keep-days <keep-days>            | Keep files that are newer than this number of days. [default: 0]         |   
-| -s, --security-level <security-level>  | Number of passes of security overwriting. [default: 0]                   |
-| -t, --whatif                           | Test mode, does not actually purge any files.                            |
-| -f, --force                            | Force deletion of read-only files.                                       |
-| -p, --prompt                           | Prompt for confirmation before deleting each file.                       |
-| --version                              | Show version information                                                 |
-| -?, -h, --help                         | Show help and usage information                                          |
+# Usage
+
+```
+Purge <FileSpec> [options]
+```
+
+| Argument / option | Description |
+|---|---|
+| `<FileSpec>` | Directory and file pattern of the files to purge, e.g. `D:\Backups\Finance*.zip`. Wildcards (`*`, `?`) are allowed in the file name but not in the directory. A bare directory is rejected. |
+| `-n, --keep-number <n>` | Always keep at least this many of the newest files. [default: 0] |
+| `-d, --keep-days <n>` | Keep files modified within this many days. [default: 0] |
+| `-s, -l, --security-level <n>` | Passes of random overwriting before deleting, 0-50. [default: 0] |
+| `-t, --whatif` | Test mode: show what would be purged without deleting anything. |
+| `-f, --force` | Force deletion of read-only files. |
+| `-p, --prompt` | Ask before deleting each file: **Y**es, **N**o, **A**ll remaining, **Q**uit. Needs an interactive console. |
+| `--version` | Show version information. |
+| `-?, -h, --help` | Show help and usage information. |
+
+Example: keep 30 days of daily backups, but never fewer than 5:
+
+```
+Purge -d 30 -n 5 "D:\Backups\Finance Backup*.zip"
+```
+
+Run it with `--whatif` first to see what would be deleted.
+
+## How files are chosen
+
+* A file's age is measured from its last-modified time.
+* Files more than `--keep-days` days old are purged, except that the newest
+  `--keep-number` files are always kept. Ordering uses exact timestamps, so this
+  works correctly with several backups a day.
+* Pattern matching is exact: `*.bak` matches `x.bak` but not `x.bakup`.
+* Hidden and system files that match the pattern are included.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success (including "no files matched"). |
+| 1 | Bad arguments, or the directory could not be read. Nothing was deleted. |
+| 2 | One or more files could not be purged (read-only, in use, access denied). |
+
+## Secure wipe
+
+With `--security-level` greater than 0, each file is overwritten that many times
+with cryptographically random bytes, truncated, renamed to a random name, and then
+deleted. This is best effort: SSDs, copy-on-write or compressed file systems, and
+Volume Shadow Copies may keep old data elsewhere on the disk.
+
+## Building
+
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
+
+```
+dotnet test
+dotnet publish Purge -c Release -r win-x64 -p:PublishSingleFile=true --self-contained false -o publish
+```
+
+Use `--self-contained true` for an exe that runs without the .NET runtime
+installed (larger file).
+
+## Changes in 2.0
+
+* Ported from .NET Framework 4.7.2 to .NET 10 and the released System.CommandLine 2.0.
+  The project now builds from a clean clone.
+* Fixed: `*.zip` style patterns also matched longer extensions such as `.zipx`.
+* Fixed: `--keep-number` could keep the wrong files when several had the same age in days.
+* Fixed: the exit code was always 0; errors now return 1 or 2.
+* Fixed: `--prompt` crashed when input was redirected, and a `--force` error could stop the run.
+* Fixed: failed files are counted, and `--whatif` reports what would be purged.
+* Ages are compared exactly rather than in whole days, so `-d 0` now includes files
+  less than a day old.
+* Faster, stronger wipe (crypto random, one flush per pass, file renamed before delete).
+* `-s` now works as documented (alias of `-l`), and `--prompt` gains All and Quit.
+* Unit tests and a GitHub Actions build.

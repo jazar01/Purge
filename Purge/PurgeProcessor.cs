@@ -1,115 +1,160 @@
-﻿using System;
-using System.IO;
+﻿using System.Diagnostics;
 
-namespace Purge
+namespace Purge;
+
+public sealed record PurgeOptions(
+    string FileSpec,
+    int KeepNumber = 0,
+    int KeepDays = 0,
+    int SecurityLevel = 0,
+    bool WhatIf = false,
+    bool Force = false,
+    bool Prompt = false);
+
+/// <summary>Process exit codes, so scripts and scheduled tasks can detect problems.</summary>
+public static class ExitCodes
 {
-    public class PurgeProcessor
+    /// <summary>Everything that should have been purged was purged (or nothing matched).</summary>
+    public const int Success = 0;
+
+    /// <summary>Bad arguments, or the file list could not be read. Nothing was deleted.</summary>
+    public const int Error = 1;
+
+    /// <summary>One or more files could not be purged.</summary>
+    public const int PartialFailure = 2;
+}
+
+/// <summary>
+/// Purges the files selected by <see cref="PurgeOptions"/>.
+/// </summary>
+public sealed class PurgeProcessor
+{
+    private readonly TextWriter _out;
+    private readonly TextWriter _err;
+    private readonly Func<char>? _readKey;
+
+    /// <param name="output">Where progress is written.</param>
+    /// <param name="error">Where errors are written.</param>
+    /// <param name="readKey">Reads one key press for --prompt; null when no interactive console is available.</param>
+    public PurgeProcessor(TextWriter output, TextWriter error, Func<char>? readKey = null)
     {
-        /// <summary>
-        /// This is the main method for purging files
-        /// </summary>
-        /// <param name="keepNumber"></param>
-        /// <param name="keepDays"></param>
-        /// <param name="securityLevel"></param>
-        /// <param name="whatIf"></param>
-        /// <param name="force"></param>
-        /// <param name="prompt"></param>
-        /// <param name="fileSpec"></param>
-        public PurgeProcessor(int keepNumber, int keepDays, int securityLevel, bool whatIf, bool force, bool prompt, string fileSpec)
+        _out = output;
+        _err = error;
+        _readKey = readKey;
+    }
+
+    public int Run(PurgeOptions options, DateTime? nowUtc = null)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        if (options.Prompt && !options.WhatIf && _readKey is null)
         {
-            DateTime startTime = DateTime.Now;
-            //TODO determine error handling
-            FileList fileList;
+            _err.WriteLine("Error: --prompt needs an interactive console (input is redirected).");
+            return ExitCodes.Error;
+        }
+
+        FileList fileList;
+        try
+        {
+            fileList = FileList.FromFileSpec(options.FileSpec, nowUtc ?? DateTime.UtcNow);
+        }
+        catch (Exception e) when (e is ArgumentException or IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            _err.WriteLine("Error: " + e.Message);
+            return ExitCodes.Error;
+        }
+
+        if (fileList.Items.Count == 0)
+        {
+            _out.WriteLine($"No files match {options.FileSpec}");
+            return ExitCodes.Success;
+        }
+
+        fileList.MarkFilesForDeletion(options.KeepNumber, options.KeepDays);
+
+        int purged = 0, retained = 0, failed = 0;
+        bool confirmAll = false, quit = false;
+        string verb = options.WhatIf ? "Would purge" : "Purging";
+
+        foreach (var entry in fileList.Items)
+        {
+            if (!entry.IsCandidate || quit)
+            {
+                retained++;
+                continue;
+            }
+
+            _out.WriteLine($"{verb} (age {entry.Age} days): {entry.File.FullName}");
+
+            if (options.WhatIf)
+            {
+                purged++;
+                continue;
+            }
+
+            if (options.Prompt && !confirmAll)
+            {
+                switch (Ask())
+                {
+                    case 'n':
+                        _out.WriteLine("   Skipped.");
+                        retained++;
+                        continue;
+                    case 'q':
+                        _out.WriteLine("   Quitting; remaining files are kept.");
+                        quit = true;
+                        retained++;
+                        continue;
+                    case 'a':
+                        confirmAll = true;
+                        break;
+                }
+            }
+
             try
             {
-                fileList = new FileList(fileSpec);           // build the list of files matching
+                if (options.Force && entry.File.IsReadOnly)
+                    entry.File.IsReadOnly = false;
+
+                FileWiper.WipeAndDelete(entry.File, options.SecurityLevel);
+                purged++;
             }
-            catch (DirectoryNotFoundException e)
+            catch (UnauthorizedAccessException)
             {
-                Console.WriteLine("Directory not found: " + e.Message);
-                return;
+                entry.File.Refresh();
+                _err.WriteLine(entry.File.IsReadOnly
+                    ? $"   Unable to purge {entry.File.FullName} - read-only (use --force)"
+                    : $"   Unable to purge {entry.File.FullName} - access denied");
+                failed++;
             }
-            catch (FileNotFoundException e)
+            catch (Exception e) when (e is IOException or System.Security.SecurityException)
             {
-                Console.WriteLine("FileSpec error: " + e.Message);
-                return;
+                _err.WriteLine($"   Unable to purge {entry.File.FullName} - {e.Message}");
+                failed++;
             }
-            catch (Exception e)
-            {
-                Console.WriteLine("Error: " + e.Message);
-                return;
-            }
-
-
-            fileList.MarkFilesForDeletion(keepNumber, keepDays);  // mark the candidates for purging
-
-            int keepCount = 0;
-            int deleteCount = 0;
-
-            // loop thru all of the files found in the dir that match the pattern in filespec
-            foreach (FileEntry File in fileList.Items)
-            {
-                if (File.IsCandidate)
-                {
-                    // the file is a candidate for purging
-                    Console.WriteLine("File Age: {0} Purging Filename: {1} ", File.Age, File.File.FullName);
-                    if (!whatIf)             //only purge if whatif is false
-                    {
-                        if (prompt)          // do we need a prompt
-                        {
-                            Console.Write("   Press 'Y' to Purge or 'N' to skip purging this file: ");
-                            char key;
-                            do
-                            {
-                                ConsoleKeyInfo keypress = Console.ReadKey(true);
-                                key = keypress.KeyChar;
-                            }
-                            while (!(key == 'Y' || key == 'y' || key == 'N' || key == 'n'));
-                            Console.WriteLine(key);
-
-                            if (key == 'N' || key == 'n')
-                            {
-                                Console.WriteLine("     Skipping file {0} ", File.File.FullName);
-                                keepCount++;  // user answered NO to prompt, keeping the file      
-                                continue;
-                            }
-                        }
-
-                        // purge the file
-                        if (force) File.File.IsReadOnly = false;
-                        try
-                        {
-                            File.wipe(securityLevel);
-                        }
-                        catch (UnauthorizedAccessException)
-                        {
-                            if (File.File.IsReadOnly)
-                                Console.WriteLine("   Unable to purge file - ReadOnly (use --force)");
-                            else
-                                Console.WriteLine("   Unable to purge file - Access Denied");
-
-                            keepCount++;
-                            continue;
-                        }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine("   Error purging file: " + e.Message);
-                            continue;
-                        }
-
-                        deleteCount++;
-                    }
-                }
-                else
-                    // File is not a candidate for purging
-                    keepCount++;
-            }
-
-            TimeSpan elapsedTime = DateTime.Now - startTime;
-            Console.WriteLine("Files purged: {0}   Files retained: {1}   {2:f1} Seconds", deleteCount, keepCount, elapsedTime.TotalSeconds);
-            if (whatIf)
-                Console.WriteLine(" NOTE:  --whatif was set, no files were actually purged");
-
         }
+
+        string summary = options.WhatIf
+            ? $"Files that would be purged: {purged}   Files that would be retained: {retained}"
+            : $"Files purged: {purged}   Files retained: {retained}" + (failed > 0 ? $"   Failed: {failed}" : "");
+        _out.WriteLine($"{summary}   {stopwatch.Elapsed.TotalSeconds:f1} seconds");
+
+        if (options.WhatIf)
+            _out.WriteLine("NOTE: --whatif was set, no files were actually purged.");
+
+        return failed > 0 ? ExitCodes.PartialFailure : ExitCodes.Success;
+    }
+
+    private char Ask()
+    {
+        _out.Write("   Purge this file? [Y]es / [N]o / [A]ll remaining / [Q]uit: ");
+        char key;
+        do
+        {
+            key = char.ToLowerInvariant(_readKey!());
+        }
+        while (key is not ('y' or 'n' or 'a' or 'q'));
+        _out.WriteLine(key);
+        return key;
     }
 }
