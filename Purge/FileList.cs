@@ -1,150 +1,114 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
+﻿namespace Purge;
 
-namespace Purge
+/// <summary>
+/// The files matching a file spec, ordered newest first, and the logic that decides
+/// which of them are purged.
+/// </summary>
+public sealed class FileList
 {
-    class FileList
+    private static readonly char[] Wildcards = ['*', '?'];
+
+    public FileList(IEnumerable<FileEntry> items)
     {
-        private FileInfo[] fileInfoList;  // list of raw FileInfo's 
-        public List<FileEntry> Items { get; set; }
+        // Order by exact timestamp (not whole days) so --keep-number always keeps the
+        // truly newest files, with the path as a stable tie-breaker.
+        Items = items
+            .OrderByDescending(f => f.LastWriteUtc)
+            .ThenBy(f => f.File.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
-        /// <summary>
-        /// Constructor 
-        /// </summary>
-        /// <param name="fileSpec"></param>
-        public FileList(string fileSpec)
+    /// <summary>Files, newest first.</summary>
+    public IReadOnlyList<FileEntry> Items { get; }
+
+    public int KeepCount => Items.Count(f => !f.IsCandidate);
+    public int PurgeCount => Items.Count(f => f.IsCandidate);
+
+    /// <summary>
+    /// Builds the list from a file spec such as <c>D:\Backups\Finance*.zip</c>.
+    /// </summary>
+    /// <exception cref="ArgumentException">The spec is empty, is a directory, or has wildcards in the directory part.</exception>
+    /// <exception cref="DirectoryNotFoundException">The directory does not exist.</exception>
+    public static FileList FromFileSpec(string fileSpec, DateTime nowUtc)
+    {
+        var (directory, pattern) = SplitFileSpec(fileSpec);
+
+        var options = new EnumerationOptions
         {
-            string directory = Path.GetDirectoryName(fileSpec);
-            string fileName = Path.GetFileName(fileSpec);
+            // Simple matching: only * and ?, and no legacy DOS quirks such as
+            // "*.bak" also matching "*.bakup".
+            MatchType = MatchType.Simple,
+            MatchCasing = MatchCasing.CaseInsensitive,
+            RecurseSubdirectories = false,
+            IgnoreInaccessible = false,
+            AttributesToSkip = 0, // include hidden/system files, as the original version did
+        };
 
-            if (string.IsNullOrWhiteSpace(directory))
-                directory = Environment.CurrentDirectory;
+        var files = new DirectoryInfo(directory)
+            .EnumerateFiles(pattern, options)
+            .Select(fi => new FileEntry(fi, nowUtc));
 
-            try  // TODO - Change this to let the exceptions bubble up
-                 //  I don't want console I/O coming from an class like this
-            {
-                DirectoryInfo di = new DirectoryInfo(directory);
-                fileInfoList = di.GetFiles(fileName, SearchOption.TopDirectoryOnly);
-            }
-            catch (DirectoryNotFoundException)
-            {
-                throw (new DirectoryNotFoundException(directory));
-            }
-            catch (Exception)
-            {
-                throw (new FileNotFoundException(fileSpec));
-            }
+        return new FileList(files);
+    }
 
-            GetFileList();
-        }
+    public static (string Directory, string Pattern) SplitFileSpec(string fileSpec)
+    {
+        if (string.IsNullOrWhiteSpace(fileSpec))
+            throw new ArgumentException("FileSpec must not be empty.");
 
-        /// <summary>
-        /// builds the Items list from the FileInfoList
-        /// </summary>
-        private void GetFileList()
+        if (Directory.Exists(fileSpec))
+            throw new ArgumentException(
+                $"'{fileSpec}' is a directory. Add a file pattern, e.g. {Path.Combine(fileSpec, "*.zip")}");
+
+        string? directory = Path.GetDirectoryName(fileSpec);
+        string pattern = Path.GetFileName(fileSpec);
+
+        if (string.IsNullOrEmpty(pattern))
+            throw new ArgumentException($"'{fileSpec}' has no file pattern, e.g. {Path.Combine(fileSpec, "*.zip")}");
+
+        if (string.IsNullOrEmpty(directory))
+            directory = Environment.CurrentDirectory;
+        else if (directory.IndexOfAny(Wildcards) >= 0)
+            throw new ArgumentException("Wildcards are allowed in the file name but not in the directory part of FileSpec.");
+
+        if (!Directory.Exists(directory))
+            throw new DirectoryNotFoundException($"Directory not found: {directory}");
+
+        return (directory, pattern);
+    }
+
+    /// <summary>
+    /// Marks files older than <paramref name="keepDays"/> days for purging, but never
+    /// so many that fewer than <paramref name="keepNumber"/> files would remain.
+    /// The newest files are the ones kept.
+    /// </summary>
+    public void MarkFilesForDeletion(int keepNumber, int keepDays)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(keepNumber);
+        ArgumentOutOfRangeException.ThrowIfNegative(keepDays);
+
+        int kept = 0;
+        foreach (var file in Items) // newest first
         {
-            Items = new List<FileEntry>();
-            if (fileInfoList.Length > 0)
+            bool tooOld = file.AgeDays > keepDays;
+            if (!tooOld || kept < keepNumber)
             {
-                foreach (FileInfo fi in fileInfoList)
-                {
-                    FileEntry fileEntry = new FileEntry();
-
-                    fileEntry.Directory = fi.Directory;
-                    fileEntry.File = fi;
-                    DateTime fileDate = fi.CreationTimeUtc;
-                    var Age = (DateTime.UtcNow - fi.LastWriteTimeUtc).TotalDays;
-                    fileEntry.Age = (int)Age;
-
-                    Items.Add(fileEntry);
-                }
-
-                Items.Sort((x, y) => x.Age - y.Age);  // sort Items by age
+                file.IsCandidate = false;
+                kept++;
             }
-        }
-
-        /// <summary>
-        /// Mark files in fileList that are candidates for purging
-        /// </summary>
-        /// <param name="fileList"></param>
-        /// <param name="keepNumber"></param>
-        /// <param name="keepDays"></param>
-        public void MarkFilesForDeletion(int keepNumber, int keepDays)
-        {
-            /* *****************************************
-             *  mark any files  older than keepDays    *
-             * *****************************************/
-            if (Items.Count > 0)
+            else
             {
-                foreach (FileEntry file in Items)
-                {
-                    if (file.Age > keepDays)
-                        file.IsCandidate = true;
-                    else
-                        file.IsCandidate = false;
-                }
-
-                /* *****************************************
-                 *  make sure keepNumber files will remain *
-                 *  ****************************************/
-
-                if (keepCount < keepNumber)
-                    UnMarkFiles(keepNumber - keepCount);
-            }
-        }
-
-        /// <summary>
-        /// Count the number of files that are not marked as candidates for purging
-        /// </summary>
-        /// <param name="fileList"></param>
-        /// <returns></returns>
-        private int keepCount
-        {
-            get
-            {
-                int counter = 0;
-                if (Items.Count > 0)
-                    foreach (FileEntry file in Items)
-                        if (!file.IsCandidate)
-                            counter++;
-
-                return counter;
+                file.IsCandidate = true;
             }
         }
+    }
 
-        /// <summary>
-        /// return a string representation
-        /// </summary>
-        public override string ToString()
-        {
-            StringBuilder result = new StringBuilder();
-            if (Items.Count > 0)
-                foreach (FileEntry file in Items)
-                    result.Append(string.Format("{0}\t{1}\t{2}\n", file.Age, file.IsCandidate, file.File.FullName));
-
-            result.Append(string.Format("Total count:{0}  To be Deleted:{1}   To be Kept:{2}\n", Items.Count, Items.Count - keepCount, keepCount));
-            return result.ToString();
-        }
-
-        /// <summary>
-        /// unmark some of the oldest files 
-        ///   this is used when too many files are marked because of Age
-        ///   and we need to keep some of them to satisfy the keepNumber
-        /// </summary>
-        /// <param name="count"></param>
-        private void UnMarkFiles(int count)
-        {
-            if (Items.Count > 0 && count > 0) // make sure there is something valid to do
-                foreach (FileEntry file in Items)  // Items are already sorted by age
-                    if (file.IsCandidate)
-                    {
-                        file.IsCandidate = false;
-                        count--;
-                        if (count == 0)
-                            return;
-                    }
-        }
+    public override string ToString()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var file in Items)
+            sb.AppendLine($"{file.Age}\t{file.IsCandidate}\t{file.File.FullName}");
+        sb.AppendLine($"Total count: {Items.Count}  To be deleted: {PurgeCount}  To be kept: {KeepCount}");
+        return sb.ToString();
     }
 }
