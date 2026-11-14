@@ -52,6 +52,7 @@ Purge <FileSpec> [options]
 | `-f, --force` | Force deletion of read-only files. |
 | `-p, --prompt` | Ask before deleting each file: **Y**es, **N**o, **A**ll remaining, **Q**uit. Needs an interactive console. |
 | `-r, --recurse` | Also purge matching files in all subfolders. Keep-number and keep-days apply to each folder separately. |
+| `--log <file>` | Append a timestamped record of this run to the file. The log file itself is never purged. |
 | `--version` | Show version information. |
 | `-?, -h, --help` | Show help and usage information. |
 
@@ -88,6 +89,35 @@ reach outside the folder you named. If a subfolder can't be read (for example,
 access denied), it is skipped with a warning, the rest of the purge continues,
 and the exit code is 2.
 
+## Log file (`--log`)
+
+`--log <file>` keeps a record of each run, which is handy for scheduled tasks
+where nobody sees the console. Everything Purge prints is also written to the
+file:
+
+* New lines are added to the end, so the file builds up a history of runs.
+* Each line starts with the local date and time, and error lines are tagged `ERROR`.
+* Each run starts with a `=== Purge <version> started:` line showing the command
+  line, and ends with `=== Finished, exit code <n>`.
+* With `--prompt`, the question and your answer are recorded.
+* The log's folder is created if needed. If the log can't be opened, Purge stops
+  with exit code 1 before deleting anything.
+* The log file is never purged and doesn't count toward `--keep-number`, even if
+  it matches the pattern.
+* Mistakes in the command line itself (such as `-n -1`) are reported before the
+  log is opened, so they only appear on the console.
+
+```
+2026-11-14 04:00:01  === Purge 2.2.0 started: Purge -d 30 -n 5 --log D:\Logs\purge.log D:\Backups\*.zip
+2026-11-14 04:00:01  Purging (age 31 days): D:\Backups\Finance 2026-10-14.zip
+2026-11-14 04:00:01  ERROR     Unable to purge D:\Backups\Finance 2026-10-13.zip - read-only (use --force)
+2026-11-14 04:00:01  Files purged: 1   Files retained: 30   Failed: 1   0.0 seconds
+2026-11-14 04:00:01  === Finished, exit code 2
+```
+
+The log keeps growing; delete or archive it from time to time, or keep logs in
+a dated file name chosen by the script that runs Purge.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -114,6 +144,10 @@ dotnet publish Purge -c Release -r win-x64 -p:PublishSingleFile=true --self-cont
 
 Use `--self-contained true` for an exe that runs without the .NET runtime
 installed (larger file).
+
+## Changes in 2.2
+
+* New `--log <file>` option that appends a timestamped record of each run.
 
 ## Changes in 2.1
 

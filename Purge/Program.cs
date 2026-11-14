@@ -54,6 +54,11 @@ public static class Program
         {
             Description = "Also purge matching files in all subfolders. Keep-number and keep-days apply to each folder separately.",
         };
+        var log = new Option<string>("--log")
+        {
+            Description = "Append a timestamped record of this run to this file. The log file itself is never purged.",
+            HelpName = "file",
+        };
         var fileSpec = new Argument<string>("FileSpec")
         {
             Description = @"Directory and file pattern of the files to purge, e.g. D:\Backups\Finance*.zip",
@@ -61,7 +66,7 @@ public static class Program
 
         var root = new RootCommand("Advanced file purging: delete old files while always keeping a minimum number.")
         {
-            keepNumber, keepDays, securityLevel, whatIf, force, prompt, recurse, fileSpec,
+            keepNumber, keepDays, securityLevel, whatIf, force, prompt, recurse, log, fileSpec,
         };
 
         root.SetAction(parseResult =>
@@ -80,11 +85,52 @@ public static class Program
             // so only offer a key reader when there is a real console to read from.
             Func<char>? readKey = Console.IsInputRedirected ? null : () => Console.ReadKey(intercept: true).KeyChar;
 
-            return new PurgeProcessor(Console.Out, Console.Error, readKey).Run(options);
+            string? logPath = parseResult.GetValue(log);
+            if (logPath is null)
+                return new PurgeProcessor(Console.Out, Console.Error, readKey).Run(options);
+
+            return RunWithLog(options, logPath, parseResult.Tokens.Select(t => t.Value), readKey);
         });
 
         return root;
     }
+
+    private static int RunWithLog(PurgeOptions options, string logPath, IEnumerable<string> arguments, Func<char>? readKey)
+    {
+        LogFile logFile;
+        try
+        {
+            logFile = LogFile.Open(logPath);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        {
+            Console.Error.WriteLine($"Error: cannot open log file {logPath}: {e.Message}");
+            return ExitCodes.Error;
+        }
+
+        using (logFile)
+        using (var output = new TeeWriter(Console.Out, logFile))
+        using (var error = new TeeWriter(Console.Error, logFile, tag: "ERROR"))
+        {
+            string version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "";
+            logFile.WriteLine($"=== Purge {version} started: Purge {string.Join(' ', arguments.Select(Quote))}");
+            try
+            {
+                int code = new PurgeProcessor(output, error, readKey)
+                    .Run(options with { ExcludeFile = logFile.FullPath });
+                logFile.WriteLine($"=== Finished, exit code {code}");
+                return code;
+            }
+            catch (Exception e)
+            {
+                logFile.WriteLine($"=== Failed: {e.GetType().Name}: {e.Message}", "ERROR");
+                throw;
+            }
+        }
+    }
+
+    private static string Quote(string arg) =>
+        arg.Length == 0 || arg.Any(char.IsWhiteSpace) ? $"\"{arg}\"" : arg;
 
     private static void RequireNonNegative(OptionResult result, string name)
     {

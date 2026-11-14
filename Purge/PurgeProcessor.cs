@@ -10,7 +10,8 @@ public sealed record PurgeOptions(
     bool WhatIf = false,
     bool Force = false,
     bool Prompt = false,
-    bool Recurse = false);
+    bool Recurse = false,
+    string? ExcludeFile = null);
 
 /// <summary>Process exit codes, so scripts and scheduled tasks can detect problems.</summary>
 public static class ExitCodes
@@ -69,6 +70,16 @@ public sealed class PurgeProcessor
         {
             _err.WriteLine("Error: " + e.Message);
             return ExitCodes.Error;
+        }
+
+        // Never purge the excluded file (the log), and don't let it count toward keep-number.
+        if (options.ExcludeFile is { } exclude)
+        {
+            string excludePath = Path.GetFullPath(exclude);
+            folders = folders
+                .Select(f => new FileList(f.Items.Where(e =>
+                    !string.Equals(e.File.FullName, excludePath, StringComparison.OrdinalIgnoreCase))))
+                .ToList();
         }
 
         if (folders.All(f => f.Items.Count == 0))
