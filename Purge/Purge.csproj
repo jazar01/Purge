@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Purge</RootNamespace>
     <AssemblyName>Purge</AssemblyName>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <Product>Purge</Product>
     <Description>Advanced file purging: delete old files while always keeping a minimum number.</Description>
     <Copyright>Copyright © 2020-2026</Copyright>
