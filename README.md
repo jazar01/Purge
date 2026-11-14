@@ -39,9 +39,12 @@ Future consideration:  Send an alert via email if no new files are found for x d
 # Download
 
 Get the latest `Purge-<version>-win-x64.zip` from the
-[Releases page](https://github.com/jazar01/Purge/releases/latest) and extract
-`Purge.exe`. It is a single file that runs on any 64-bit Windows PC with nothing
-else installed. Put it in a folder on your PATH to run `purge` from anywhere.
+[Releases page](https://github.com/jazar01/Purge/releases/latest) and extract it
+to a folder such as `C:\Tools\Purge`. It runs on any 64-bit Windows PC with
+nothing else installed. The zip holds two programs:
+
+* `Purge.exe`, the command-line tool. Put its folder on your PATH to run `purge` from anywhere.
+* `PurgeWindow.exe`, which adds Purge to the Explorer right-click menu (see below).
 
 # Usage
 
@@ -160,6 +163,31 @@ file:
 The log keeps growing; delete or archive it from time to time, or keep logs in
 a dated file name chosen by the script that runs Purge.
 
+## Explorer right-click menu
+
+Open `PurgeWindow.exe` and click **Add to menu**. This adds two commands to the
+File Explorer right-click menu:
+
+* **Purge files…** on a folder (or the empty space inside one) opens a window with
+  the same choices as the command line: file pattern, files to always keep, days
+  to keep, size limits, created or modified time, subfolders, overwrite passes and
+  read-only files. **Preview** shows what would be purged; **Purge** stays disabled
+  until you have previewed the current settings, and asks before deleting.
+* **Securely delete…** on one or more selected files lists them, lets you choose
+  the number of overwrite passes, and asks before deleting. Selected folders are
+  skipped.
+
+On Windows 11 the commands are under **Show more options** (or Shift+right-click);
+the short Windows 11 menu only lists signed, packaged apps.
+
+The menu is added for your Windows user only and needs no administrator rights.
+It runs `PurgeWindow.exe` from where it was when you added it, so if you move the
+file, open it and click **Update menu**. **Remove from menu** takes the commands
+out again. For scripted setups, `PurgeWindow.exe --add-to-explorer` and
+`PurgeWindow.exe --remove-from-explorer` do the same without a window.
+
+`PurgeWindow.exe` also has buttons to open both windows without the menu.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -182,11 +210,13 @@ Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 ```
 dotnet test
 dotnet publish Purge -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true -p:EnableCompressionInSingleFile=true -o publish
+dotnet publish PurgeWindow -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true -p:EnableCompressionInSingleFile=true -o publish
 ```
 
-This makes a single `publish\Purge.exe` (about 37 MB) that runs on any 64-bit
-Windows PC with nothing else installed. The GitHub build produces the same file
-as a downloadable artifact.
+This makes `publish\Purge.exe` (about 37 MB) and `publish\PurgeWindow.exe`
+(about 52 MB), each a single file that runs on any 64-bit Windows PC with nothing
+else installed. The GitHub build produces the same files as a downloadable
+artifact.
 
 For a much smaller exe (under 1 MB) that needs the .NET 10 runtime installed,
 use `--self-contained false` and leave out the compression option.
@@ -196,7 +226,7 @@ launcher: it needs the `.dll` and `.json` files next to it.
 
 ## Making a release
 
-1. Set `<Version>` in `Purge/Purge.csproj` and add a `## Changes in <major.minor>`
+1. Set `<Version>` in `Directory.Build.props` and add a `## Changes in <major.minor>`
    section to this README. Merge that to master.
 2. Tag the merged commit and push the tag:
 
@@ -208,6 +238,11 @@ launcher: it needs the `.dll` and `.json` files next to it.
 The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped exe,
 a SHA-256 checksum, and the README's changes section as release notes. The build
 fails without releasing if the tag doesn't match `<Version>`.
+
+## Changes in 2.4
+
+* New `PurgeWindow.exe` adds **Purge files…** and **Securely delete…** to the
+  Explorer right-click menu, with windows for choosing the options.
 
 ## Changes in 2.3
 

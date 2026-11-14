@@ -18,10 +18,13 @@ jobs:
           dotnet-version: 10.0.x
       - run: dotnet test -c Release
       - run: dotnet publish Purge -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true -p:EnableCompressionInSingleFile=true -o publish
+      - run: dotnet publish PurgeWindow -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true -p:EnableCompressionInSingleFile=true -o publish
       - uses: actions/upload-artifact@v4
         with:
           name: Purge-win-x64
-          path: publish/Purge.exe
+          path: |
+            publish/Purge.exe
+            publish/PurgeWindow.exe
 
       - name: Publish release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
