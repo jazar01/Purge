@@ -130,7 +130,7 @@ public static class FolderWipe
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
-                    unreadable.Add(new(dir.FullName, e is UnauthorizedAccessException ? "access denied" : e.Message));
+                    unreadable.Add(new(dir.FullName, SecureDelete.Reason(e)));
                 }
             }
         }
@@ -180,7 +180,7 @@ public static class FolderWipe
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                failures.Add(new(link, e is UnauthorizedAccessException ? "access denied" : e.Message));
+                failures.Add(new(link, SecureDelete.Reason(e)));
             }
         }
 
@@ -197,15 +197,51 @@ public static class FolderWipe
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                failures.Add(new(folder, e is UnauthorizedAccessException ? "access denied" : e.Message));
+                failures.Add(new(folder, SecureDelete.Reason(e)));
             }
         }
 
         bool removed = !Directory.Exists(contents.Path) && !System.IO.File.Exists(contents.Path);
-        if (!removed && !failures.Any(f => string.Equals(f.Path, contents.Path, StringComparison.OrdinalIgnoreCase)))
-            failures.Add(new(contents.Path, "kept because some of its contents could not be deleted"));
+        if (!removed)
+        {
+            ReportLeftovers(contents.Path, failures);
+            if (!failures.Any(f => SamePath(f.Path, contents.Path)))
+                failures.Add(new(contents.Path, KeptMessage));
+        }
 
         return new FolderDeleteResult(deleted, failures, removed);
+    }
+
+    /// <summary>The reason given for a folder kept only because something inside it is left.</summary>
+    public const string KeptMessage = "kept because it still contains the items listed";
+
+    /// <summary>
+    /// Adds anything still in the folder that isn't explained yet, such as files that
+    /// appeared after the folder was scanned, so every item left behind has a reason.
+    /// </summary>
+    private static void ReportLeftovers(string folder, List<DeleteResult> failures)
+    {
+        FolderContents now;
+        try
+        {
+            now = Scan(folder);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return;
+        }
+
+        bool Explained(string path) => failures.Any(f =>
+            SamePath(f.Path, path) ||
+            (!SamePath(f.Path, folder) && // inside a reported subfolder (e.g. an unreadable one)
+             path.StartsWith(Trim(f.Path) + "\\", StringComparison.OrdinalIgnoreCase)));
+
+        foreach (var file in now.Files.Where(f => !Explained(f.FullName)))
+            failures.Add(new(file.FullName, "added after the folder was scanned; not deleted"));
+        foreach (string link in now.Links.Where(l => !Explained(l)))
+            failures.Add(new(link, "added after the folder was scanned; not deleted"));
+        foreach (var unreadable in now.Unreadable.Where(u => !Explained(u.Path)))
+            failures.Add(unreadable);
     }
 
     /// <summary>Removes an empty folder, clearing its read-only flag and optionally renaming it first.</summary>
@@ -235,6 +271,8 @@ public static class FolderWipe
     }
 
     private static string Trim(string path) => path.TrimEnd('\\', '/');
+
+    private static bool SamePath(string a, string b) => string.Equals(Trim(a), Trim(b), StringComparison.OrdinalIgnoreCase);
 
     private static bool IsInside(string path, string folder) =>
         path.StartsWith(folder + "\\", StringComparison.OrdinalIgnoreCase);

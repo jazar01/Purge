@@ -40,13 +40,27 @@ public static class SecureDelete
             FileWiper.WipeAndDelete(file, passes);
             return new(path, null);
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException or NotSupportedException)
         {
-            return new(path, "access denied");
-        }
-        catch (Exception e) when (e is IOException or System.Security.SecurityException or ArgumentException or NotSupportedException)
-        {
-            return new(path, e.Message);
+            return new(path, Reason(e));
         }
     }
+
+    private const int ErrorSharingViolation = 32;
+    private const int ErrorLockViolation = 33;
+    private const int ErrorDirNotEmpty = 145;
+
+    /// <summary>
+    /// A short, plain reason for a failed delete. Windows' own messages repeat the full path
+    /// and are long, so the common cases are reworded.
+    /// </summary>
+    public static string Reason(Exception e) => e switch
+    {
+        UnauthorizedAccessException => "access denied",
+        IOException io when (io.HResult & 0xFFFF) is ErrorSharingViolation or ErrorLockViolation =>
+            "in use by another program (close it and try again)",
+        IOException io when (io.HResult & 0xFFFF) == ErrorDirNotEmpty =>
+            "not empty: something was added to it",
+        _ => e.Message,
+    };
 }

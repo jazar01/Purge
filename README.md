@@ -201,7 +201,10 @@ File Explorer right-click menu:
   Folder junctions and symbolic links inside a folder are removed as links only;
   what they point to is never touched. If something can't be deleted (a file in
   use, a read-only file without the box ticked), the rest is deleted, only the
-  folders still holding it are kept, and the window lists what was left.
+  folders still holding it are kept, and the window lists each item left under
+  its folder with the reason (hover for the full path). If the folder itself
+  couldn't be removed, for example because a program or terminal has it open,
+  its row says why. Double-click any of these rows to show it in File Explorer.
   Whole drives, the Windows and Program Files folders, `C:\Users` and your user
   profile folder can't be securely deleted (folders inside your profile can).
 
@@ -299,6 +302,13 @@ launcher: it needs the `.dll` and `.json` files next to it.
 The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped exe,
 a SHA-256 checksum, and the README's changes section as release notes. The build
 fails without releasing if the tag doesn't match `<Version>`.
+
+## Changes in 2.7.1
+
+* Securely delete: when a folder can't be fully removed, the window now lists
+  every item left with a plain reason (such as "in use by another program"),
+  including the folder itself and files added while it was deleting.
+  Double-click a row to show it in File Explorer.
 
 ## Changes in 2.7
 
