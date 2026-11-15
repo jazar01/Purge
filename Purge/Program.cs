@@ -54,6 +54,11 @@ public static class Program
         {
             Description = "Also purge matching files in all subfolders. Keep-number and keep-days apply to each folder separately.",
         };
+        var removeEmptyFolders = new Option<bool>("--remove-empty-folders")
+        {
+            Description = "With --recurse, also remove subfolders that the purge leaves empty. " +
+                          "Folders that were already empty, and the folder in FileSpec, are kept.",
+        };
         var log = new Option<string>("--log")
         {
             Description = "Append a timestamped record of this run to this file. The log file itself is never purged.",
@@ -74,8 +79,14 @@ public static class Program
 
         var root = new RootCommand("Advanced file purging: delete old files while always keeping a minimum number.")
         {
-            keepNumber, keepDays, securityLevel, whatIf, force, prompt, recurse, minSize, maxSize, ageBy, log, fileSpec,
+            keepNumber, keepDays, securityLevel, whatIf, force, prompt, recurse, removeEmptyFolders, minSize, maxSize, ageBy, log, fileSpec,
         };
+
+        root.Validators.Add(r =>
+        {
+            if (r.GetValue(removeEmptyFolders) && !r.GetValue(recurse))
+                r.AddError("--remove-empty-folders only works together with --recurse.");
+        });
 
         root.Validators.Add(r =>
         {
@@ -104,6 +115,7 @@ public static class Program
                 Force: parseResult.GetValue(force),
                 Prompt: parseResult.GetValue(prompt),
                 Recurse: parseResult.GetValue(recurse),
+                RemoveEmptyFolders: parseResult.GetValue(removeEmptyFolders),
                 Selection: new FileSelection(
                     AgeBy: parseResult.GetValue(ageBy),
                     MinSize: parseResult.GetValue(minSize),

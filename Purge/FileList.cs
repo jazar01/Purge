@@ -8,8 +8,11 @@ public sealed class FileList
 {
     private static readonly char[] Wildcards = ['*', '?'];
 
-    public FileList(IEnumerable<FileEntry> items)
+    /// <param name="items">The matching files.</param>
+    /// <param name="folder">The folder the files are in, when the list is one folder's files.</param>
+    public FileList(IEnumerable<FileEntry> items, string? folder = null)
     {
+        Folder = folder;
         // Order by exact timestamp (not whole days) so --keep-number always keeps the
         // truly newest files, with the path as a stable tie-breaker.
         Items = items
@@ -20,6 +23,9 @@ public sealed class FileList
 
     /// <summary>Files, newest first.</summary>
     public IReadOnlyList<FileEntry> Items { get; }
+
+    /// <summary>The folder these files are in, or null if not known.</summary>
+    public string? Folder { get; }
 
     public int KeepCount => Items.Count(f => !f.IsCandidate);
     public int PurgeCount => Items.Count(f => f.IsCandidate);
@@ -111,7 +117,7 @@ public sealed class FileList
             .Select(fi => new FileEntry(fi, nowUtc, selection.AgeBy))
             .ToList();
 
-        return new FileList(files);
+        return new FileList(files, folder.FullName);
     }
 
     public static (string Directory, string Pattern) SplitFileSpec(string fileSpec)

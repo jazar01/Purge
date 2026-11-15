@@ -18,6 +18,7 @@ public sealed class PurgeForm : Form
     private readonly TextBox _minSize;
     private readonly TextBox _maxSize;
     private readonly CheckBox _recurse;
+    private readonly CheckBox _removeEmpty;
     private readonly NumericUpDown _passes;
     private readonly CheckBox _force;
     private readonly TextBox _output;
@@ -49,6 +50,14 @@ public sealed class PurgeForm : Form
         _minSize = new TextBox { Width = 90, PlaceholderText = "no minimum" };
         _maxSize = new TextBox { Width = 90, PlaceholderText = "no maximum" };
         _recurse = new CheckBox { Text = "Include subfolders (each folder keeps its own newest files)", AutoSize = true, Anchor = AnchorStyles.Left };
+        _removeEmpty = new CheckBox
+        {
+            Text = "Remove subfolders the purge leaves empty",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(23, 0, 3, 3), // indented under "Include subfolders"
+            Enabled = false,
+        };
         _passes = Ui.Number(1, 50, width: 55);
         _force = new CheckBox { Text = "Also delete read-only files", AutoSize = true, Anchor = AnchorStyles.Left };
 
@@ -66,6 +75,7 @@ public sealed class PurgeForm : Form
         AddRow("Also keep files newer than:", Ui.Row(_keepDays, Ui.Label("days, measured from"), _ageBy));
         AddRow("Only files sized:", Ui.Row(_minSize, Ui.Label("to"), _maxSize, Ui.Label("e.g. 500KB, 1.5MB, 2GB")));
         AddRow("", _recurse);
+        AddRow("", _removeEmpty);
         AddRow("Overwrite passes:", Ui.Row(_passes, Ui.Label("before deleting (0 = just delete)")));
         AddRow("", _force);
 
@@ -107,7 +117,12 @@ public sealed class PurgeForm : Form
         foreach (var n in new[] { _keepNumber, _keepDays, _passes })
             n.ValueChanged += (_, _) => PreviewOutOfDate();
         _ageBy.SelectedIndexChanged += (_, _) => PreviewOutOfDate();
-        _recurse.CheckedChanged += (_, _) => PreviewOutOfDate();
+        _recurse.CheckedChanged += (_, _) =>
+        {
+            _removeEmpty.Enabled = _recurse.Checked;
+            PreviewOutOfDate();
+        };
+        _removeEmpty.CheckedChanged += (_, _) => PreviewOutOfDate();
         _force.CheckedChanged += (_, _) => PreviewOutOfDate();
 
         PreviewOutOfDate();
@@ -126,6 +141,13 @@ public sealed class PurgeForm : Form
 
     /// <summary>Settings for tests and for the window itself.</summary>
     public void SetPattern(string pattern) => _pattern.Text = pattern;
+
+    /// <summary>Ticks "Include subfolders" and "Remove subfolders the purge leaves empty" (for tests).</summary>
+    public void SetSubfolders(bool recurse, bool removeEmpty)
+    {
+        _recurse.Checked = recurse;
+        _removeEmpty.Checked = removeEmpty;
+    }
 
     private void PreviewOutOfDate()
     {
@@ -182,6 +204,7 @@ public sealed class PurgeForm : Form
             WhatIf: whatIf,
             Force: _force.Checked,
             Recurse: _recurse.Checked,
+            RemoveEmptyFolders: _recurse.Checked && _removeEmpty.Checked,
             Selection: new FileSelection(_ageBy.SelectedIndex == 1 ? AgeBy.Created : AgeBy.Modified, min, max));
         return (options, null);
     }

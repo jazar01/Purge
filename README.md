@@ -62,6 +62,7 @@ Purge <FileSpec> [options]
 | `-f, --force` | Force deletion of read-only files. |
 | `-p, --prompt` | Ask before deleting each file: **Y**es, **N**o, **A**ll remaining, **Q**uit. Needs an interactive console. |
 | `-r, --recurse` | Also purge matching files in all subfolders. Keep-number and keep-days apply to each folder separately. |
+| `--remove-empty-folders` | With `--recurse`, also remove subfolders the purge leaves empty. |
 | `--min-size <size>` | Only consider files at least this big, e.g. `500`, `10KB`, `1.5MB`, `2GB`. |
 | `--max-size <size>` | Only consider files at most this big. |
 | `--age-by <modified\|created>` | Measure age from the file's modified time (default) or created time. |
@@ -121,8 +122,8 @@ is kept. A copied old backup therefore looks new with `--age-by created`.
 ## Subfolders (`--recurse`)
 
 With `--recurse`, the pattern is applied in the given folder and in every folder
-below it. Only files are purged; folders are never deleted, even if their name
-matches the pattern.
+below it. Only files are purged; folders are not deleted (unless you add
+`--remove-empty-folders`, below), even if their name matches the pattern.
 
 Each folder is treated as its own set of files. For example, with
 `-r -n 5 -d 30 "D:\Backups\*.bak"` and one subfolder per database, every
@@ -133,6 +134,25 @@ Folder junctions and symbolic links are not followed, so a purge can't loop or
 reach outside the folder you named. If a subfolder can't be read (for example,
 access denied), it is skipped with a warning, the rest of the purge continues,
 and the exit code is 2.
+
+### Removing emptied folders (`--remove-empty-folders`)
+
+Add `--remove-empty-folders` (with `--recurse`) to also remove subfolders that
+the purge leaves empty, for example monthly backup folders once their last
+backup has aged out:
+
+```
+Purge -r -d 90 --remove-empty-folders "D:\Backups\*.bak"
+```
+
+* Only folders **this purge emptied** are removed: a file was purged there (or an
+  emptied folder inside it was removed), and nothing at all is left in it.
+  Folders that were already empty are kept, since they may be waiting for new
+  files, and so is any folder holding other files or folders.
+* The folder named in the FileSpec is never removed.
+* Folders are removed deepest first, so a chain of emptied folders goes in one run.
+* `--whatif` lists the folders that would be removed.
+* A folder that can't be removed is reported, and the exit code is 2.
 
 ## Log file (`--log`)
 
@@ -170,8 +190,8 @@ File Explorer right-click menu:
 
 * **Purge files…** on a folder (or the empty space inside one) opens a window with
   the same choices as the command line: file pattern, files to always keep, days
-  to keep, size limits, created or modified time, subfolders, overwrite passes and
-  read-only files. **Preview** shows what would be purged; **Purge** stays disabled
+  to keep, size limits, created or modified time, subfolders (and removing the
+  ones left empty), overwrite passes and read-only files. **Preview** shows what would be purged; **Purge** stays disabled
   until you have previewed the current settings, and asks before deleting.
 * **Securely delete…** on selected files and folders lists them (with how many
   files each folder holds), lets you choose the number of overwrite passes, and
@@ -186,7 +206,8 @@ File Explorer right-click menu:
   profile folder can't be securely deleted (folders inside your profile can).
 
   "Purge files…" is different: it cleans up *inside* a folder by rules and never
-  removes folders, so a backup folder stays in place for the next backup.
+  removes the folder you right-clicked, so a backup folder stays in place for the
+  next backup.
 
 On Windows 11 the commands are under **Show more options** (or Shift+right-click);
 the short Windows 11 menu only lists signed, packaged apps.
@@ -278,6 +299,11 @@ launcher: it needs the `.dll` and `.json` files next to it.
 The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped exe,
 a SHA-256 checksum, and the README's changes section as release notes. The build
 fails without releasing if the tag doesn't match `<Version>`.
+
+## Changes in 2.7
+
+* New `--remove-empty-folders` option (with `--recurse`) removes subfolders the
+  purge leaves empty. The Purge files window has a matching checkbox.
 
 ## Changes in 2.6
 
