@@ -3,7 +3,12 @@ namespace Purge.Tests;
 /// <summary>A throwaway directory for a test, removed on dispose.</summary>
 internal sealed class TempDir : IDisposable
 {
-    public static readonly DateTime Now = new(2026, 11, 14, 12, 0, 0, DateTimeKind.Utc);
+    /// <summary>
+    /// The "current time" file ages are measured from: the real time when the tests start.
+    /// It has to be the real time because the command-line tests run Purge, which reads
+    /// the clock itself; a fixed date made those tests fail once that date had passed.
+    /// </summary>
+    public static readonly DateTime Now = DateTime.UtcNow;
 
     public TempDir()
     {

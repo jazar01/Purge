@@ -1,0 +1,68 @@
+{
+    // Debug configurations. Everything except the setup window works on the throwaway
+    // folder %TEMP%\PurgeDebug, which is rebuilt before each run (see make-samples.ps1).
+    // Pick one in the Run and Debug panel, then press F5.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "PurgeWindow: setup window",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/PurgeWindow/bin/Debug/net10.0-windows/PurgeWindow.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole"
+        },
+        {
+            "name": "PurgeWindow: Purge files in a folder",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build and make sample files",
+            "program": "${workspaceFolder}/PurgeWindow/bin/Debug/net10.0-windows/PurgeWindow.exe",
+            "args": ["--folder", "${env:TEMP}\\PurgeDebug"],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole"
+        },
+        {
+            "name": "PurgeWindow: Securely delete files",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build and make sample files",
+            "program": "${workspaceFolder}/PurgeWindow/bin/Debug/net10.0-windows/PurgeWindow.exe",
+            "args": ["--wipe", "${env:TEMP}\\PurgeDebug\\Wipe me\\Secret.txt", "${env:TEMP}\\PurgeDebug\\Wipe me\\Secret 2.txt"],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole"
+        },
+        {
+            "name": "PurgeWindow: Securely delete a folder",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build and make sample files",
+            "program": "${workspaceFolder}/PurgeWindow/bin/Debug/net10.0-windows/PurgeWindow.exe",
+            "args": ["--wipe", "${env:TEMP}\\PurgeDebug\\Wipe me\\Folder to wipe"],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole"
+        },
+        {
+            "name": "Purge: preview (--whatif)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build and make sample files",
+            "program": "${workspaceFolder}/Purge/bin/Debug/net10.0/Purge.exe",
+            "args": ["--whatif", "--keep-number", "0", "--keep-days", "25", "--recurse", "--remove-empty-folders", "${env:TEMP}\\PurgeDebug\\*.*"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Purge: purge for real",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build and make sample files",
+            "program": "${workspaceFolder}/Purge/bin/Debug/net10.0/Purge.exe",
+            "args": ["--keep-number", "0", "--keep-days", "25", "--recurse", "--remove-empty-folders", "${env:TEMP}\\PurgeDebug\\*.*"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        }
+    ]
+}
