@@ -1,7 +1,7 @@
 <Project>
   <!-- Shared by Purge.exe and PurgeWindow.exe, so both always report the same version. -->
   <PropertyGroup>
-    <Version>2.8.0</Version>
+    <Version>2.8.1</Version>
     <!-- Show the version as plain "2.7.2", without "+<git commit hash>" appended. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Purge</Product>

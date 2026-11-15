@@ -20,7 +20,8 @@ public sealed class WipeForm : Form
         public IReadOnlyList<WipeWarning> Warnings { get; set; } = [];
     }
 
-    private readonly SelectionCollector? _collector;
+    private SelectionCollector? _collector;
+    private readonly System.Windows.Forms.Timer _quiet;
     private readonly HashSet<string> _seen = new(StringComparer.OrdinalIgnoreCase);
     private readonly ListView _list;
     private readonly NumericUpDown _passes;
@@ -119,25 +120,90 @@ public sealed class WipeForm : Form
         foreach (string path in paths)
             AddPath(path);
 
+        // Delete waits until no more items have arrived for a moment.
+        _quiet = new System.Windows.Forms.Timer { Interval = (int)GatherQuietTime.TotalMilliseconds };
+        _quiet.Tick += (_, _) =>
+        {
+            _quiet.Stop();
+            _gathering = false;
+            UpdateState();
+        };
+
         _gathering = collector is not null;
         UpdateState();
     }
 
-    protected override async void OnShown(EventArgs e)
+    protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (_collector is null)
-            return;
+        if (_collector is not null)
+            Collect(_collector);
+    }
 
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        _quiet.Dispose();
+        _collector?.Dispose();
+        base.OnFormClosed(e);
+    }
+
+    /// <summary>
+    /// Adds the items other copies of PurgeWindow send (the rest of a multi-item selection,
+    /// or a later right-click) until deleting starts.
+    /// </summary>
+    private async void Collect(SelectionCollector collector)
+    {
+        Arrived();
         try
         {
-            await _collector.CollectAsync(AddPath, GatherQuietTime);
+            await foreach (string path in collector.Paths.ReadAllAsync())
+            {
+                AddPath(path);
+                Arrived();
+            }
         }
-        finally
+        catch (System.Threading.Channels.ChannelClosedException)
         {
-            _gathering = false;
-            UpdateState();
         }
+    }
+
+    private void Arrived()
+    {
+        _gathering = true;
+        _quiet.Stop();
+        _quiet.Start();
+        UpdateState();
+    }
+
+    /// <summary>
+    /// Stops taking items from other copies, so the list is final. Returns false if items
+    /// arrived at the last moment; collecting then resumes so they can be checked first.
+    /// </summary>
+    private bool StopCollecting()
+    {
+        if (_collector is not { } collector)
+            return true;
+
+        collector.StopListening();
+        int before = _list.Items.Count;
+        while (collector.Paths.TryRead(out string? late))
+            AddPath(late);
+        if (_list.Items.Count == before)
+            return true;
+
+        ResumeCollecting();
+        return false;
+    }
+
+    /// <summary>Starts taking items from other copies again (after "No" to deleting).</summary>
+    private void ResumeCollecting()
+    {
+        if (_collector is not { } old || old.IsListening)
+            return;
+        _collector = SelectionCollector.TryBecomePrimary(old.Channel);
+        old.Dispose();
+        if (_collector is not null)
+            Collect(_collector);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -349,6 +415,10 @@ public sealed class WipeForm : Form
 
     private async Task DeleteAsync(bool confirm = true)
     {
+        // The list must be final before asking: items still arriving go to a new window.
+        if (!StopCollecting())
+            return; // more arrived at the last moment; they're listed now, so check again
+
         var items = PendingItems.ToList();
         var folders = items.Select(i => i.Tag).OfType<FolderItem>().ToList();
         int fileCount = items.Count(i => i.Tag is FileInfo);
@@ -375,7 +445,10 @@ public sealed class WipeForm : Form
                 "Nothing goes to the Recycle Bin, and it cannot be recovered.",
                 Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
             if (answer != DialogResult.Yes)
+            {
+                ResumeCollecting();
                 return;
+            }
         }
 
         _busy = true;

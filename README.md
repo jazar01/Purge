@@ -198,6 +198,13 @@ File Explorer right-click menu:
   asks before deleting. Every file is overwritten and deleted; selected folders
   are then removed along with all their subfolders.
 
+  With many items selected, Explorer starts a copy of Purge for each one; they
+  all hand their items to a single window, however slowly they start (for
+  example while a sleeping disk spins up). The window keeps taking items until
+  you click **Delete**, so a further right-click before then adds to the same
+  list; **Delete** waits until nothing new has arrived for a moment. Once
+  deleting has started, a new right-click opens a new window.
+
   Folder junctions and symbolic links inside a folder are removed as links only;
   what they point to is never touched. If something can't be deleted (a file in
   use, a read-only file without the box ticked), the rest is deleted, only the
@@ -333,6 +340,16 @@ running one and exits, the same way it does for an Explorer multi-select.
 The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped exe,
 a SHA-256 checksum, and the README's changes section as release notes. The build
 fails without releasing if the tag doesn't match `<Version>`.
+
+## Changes in 2.8.1
+
+* Fixed: securely deleting many selected items could open several windows,
+  each with only some of the items (sometimes one window per item). The copies
+  Explorer starts gave up handing their items over if the first window took
+  more than a few seconds to open, and the window stopped accepting items after
+  1.5 quiet seconds. Now the first copy accepts items as soon as it starts,
+  every hand-off is confirmed, the other copies keep trying instead of opening
+  their own window, and the window accepts items until you click **Delete**.
 
 ## Changes in 2.8.0
 
