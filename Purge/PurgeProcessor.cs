@@ -46,9 +46,19 @@ public sealed class PurgeProcessor
         _readKey = readKey;
     }
 
+    /// <summary>Files purged (or, with --whatif, that would be purged) by the last <see cref="Run"/>.</summary>
+    public int Purged { get; private set; }
+
+    /// <summary>Files kept by the last <see cref="Run"/>.</summary>
+    public int Retained { get; private set; }
+
+    /// <summary>Files that could not be purged in the last <see cref="Run"/>.</summary>
+    public int Failed { get; private set; }
+
     public int Run(PurgeOptions options, DateTime? nowUtc = null)
     {
         var stopwatch = Stopwatch.StartNew();
+        Purged = Retained = Failed = 0;
 
         if (options.Prompt && !options.WhatIf && _readKey is null)
         {
@@ -159,6 +169,8 @@ public sealed class PurgeProcessor
                 failed++;
             }
         }
+
+        (Purged, Retained, Failed) = (purged, retained, failed);
 
         string summary = options.WhatIf
             ? $"Files that would be purged: {purged}   Files that would be retained: {retained}"

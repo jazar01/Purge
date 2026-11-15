@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Version, Product and Copyright are set in Directory.Build.props. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -7,12 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Purge</RootNamespace>
     <AssemblyName>Purge</AssemblyName>
-    <Version>2.3.0</Version>
-    <!-- Show the version as plain "2.3.0", without "+<git commit hash>" appended. -->
-    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <Product>Purge</Product>
     <Description>Advanced file purging: delete old files while always keeping a minimum number.</Description>
-    <Copyright>Copyright © 2020-2026</Copyright>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
