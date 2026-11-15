@@ -19,10 +19,12 @@ public class LeftoverReportTests
     /// </summary>
     private static Process HoldFolder(string folder)
     {
-        var p = Process.Start(new ProcessStartInfo("cmd.exe", "/c ping -n 30 127.0.0.1 >nul")
+        // ping.exe itself, not via cmd.exe: one process, so stopping it really frees the folder.
+        var p = Process.Start(new ProcessStartInfo("ping.exe", "-n 30 127.0.0.1")
         {
             WorkingDirectory = folder,
             UseShellExecute = false,
+            RedirectStandardOutput = true,
             CreateNoWindow = true,
         })!;
         Thread.Sleep(300);
@@ -31,9 +33,10 @@ public class LeftoverReportTests
 
     private static void Release(Process p)
     {
-        try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+        try { p.Kill(); } catch (InvalidOperationException) { }
         p.WaitForExit();
         p.Dispose();
+        Thread.Sleep(100); // let Windows finish releasing the folder handle
     }
 
     [Fact]
