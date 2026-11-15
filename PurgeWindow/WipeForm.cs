@@ -525,7 +525,7 @@ public sealed class WipeForm : Form
         bool finished = false;
         var ui = new Progress<long>(n =>
         {
-            if (!finished)
+            if (!finished && !_settled.Contains(item))
                 item.SubItems[3].Text = action + Percent(n, work);
         });
         var progress = Throttle(ui, n => written = n);
@@ -561,15 +561,23 @@ public sealed class WipeForm : Form
 
         // Progress reports are posted to the window and can arrive after the delete
         // has finished; ignore those so they don't overwrite the final status.
+        // A row given its final status is "settled" and progress never changes it again.
         bool finished = false;
         var progress = new Progress<WipeProgress>(p =>
         {
-            if (!finished && !stop.IsCancellationRequested)
+            if (!finished && !_settled.Contains(item) && !stop.IsCancellationRequested)
                 item.SubItems[3].Text = $"Deleting {Math.Min(p.FilesDone + 1, contents.Files.Count)} of {contents.Files.Count}…" + Percent(p.BytesWritten, work);
         });
         item.SubItems[3].Text = $"Deleting 1 of {contents.Files.Count}…";
-        var result = await Task.Run(() => FolderWipe.Delete(contents, passes, force, progress, stop));
-        finished = true;
+        FolderDeleteResult result;
+        try
+        {
+            result = await Task.Run(() => FolderWipe.Delete(contents, passes, force, progress, stop));
+        }
+        finally
+        {
+            finished = true;
+        }
 
         if (result.FolderRemoved && result.Failures.Count == 0)
         {
@@ -635,14 +643,19 @@ public sealed class WipeForm : Form
         public void Report(T value) => action(value);
     }
 
-    private static void Done(ListViewItem item, string status)
+    /// <summary>Rows that have their final status; progress reports arriving late leave them alone.</summary>
+    private readonly HashSet<ListViewItem> _settled = [];
+
+    private void Done(ListViewItem item, string status)
     {
+        _settled.Add(item);
         item.SubItems[3].Text = status;
         item.ForeColor = SystemColors.GrayText;
     }
 
-    private static void Failed(ListViewItem item, string status)
+    private void Failed(ListViewItem item, string status)
     {
+        _settled.Add(item);
         item.SubItems[3].Text = status;
         item.ForeColor = Color.Firebrick;
     }
