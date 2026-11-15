@@ -243,7 +243,7 @@ public class WindowTests
             var (options, error) = form.BuildOptions(whatIf: true);
             Assert.Null(error);
             Assert.Equal(Path.Combine(dir.Path, "*.bak"), options!.FileSpec);
-            Assert.Equal((5, 30, 0, true), (options.KeepNumber, options.KeepDays, options.SecurityLevel, options.WhatIf));
+            Assert.Equal((0, 0, 1, true), (options.KeepNumber, options.KeepDays, options.SecurityLevel, options.WhatIf));
         });
     }
 }

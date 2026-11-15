@@ -41,15 +41,15 @@ public sealed class PurgeForm : Form
         _folder = new TextBox { Text = folder ?? "", Width = 400, Anchor = AnchorStyles.Left };
         var browse = Ui.Button("Browse…", (_, _) => Browse());
         _pattern = new TextBox { Width = 200, PlaceholderText = "e.g. *.bak or Backup*.zip", Anchor = AnchorStyles.Left };
-        _keepNumber = Ui.Number(5, 100_000);
-        _keepDays = Ui.Number(30, 100_000);
+        _keepNumber = Ui.Number(0, 100_000);
+        _keepDays = Ui.Number(0, 100_000);
         _ageBy = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, Anchor = AnchorStyles.Left };
         _ageBy.Items.AddRange(["Modified time", "Created time"]);
         _ageBy.SelectedIndex = 0;
         _minSize = new TextBox { Width = 90, PlaceholderText = "no minimum" };
         _maxSize = new TextBox { Width = 90, PlaceholderText = "no maximum" };
         _recurse = new CheckBox { Text = "Include subfolders (each folder keeps its own newest files)", AutoSize = true, Anchor = AnchorStyles.Left };
-        _passes = Ui.Number(0, 50, width: 55);
+        _passes = Ui.Number(1, 50, width: 55);
         _force = new CheckBox { Text = "Also delete read-only files", AutoSize = true, Anchor = AnchorStyles.Left };
 
         var settings = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Dock = DockStyle.Fill };
