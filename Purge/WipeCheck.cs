@@ -66,29 +66,41 @@ public static class WipeCheck
             return warnings;
         }
 
-        try
-        {
-            var drive = new DriveInfo(root);
-            string letter = root.TrimEnd('\\');
-            if (drive.DriveType == DriveType.Network)
-                warnings.Add(new($"Network drive {letter}",
-                    "the server decides where data is written and may keep snapshots or previous versions.", true));
-            else if (string.Equals(drive.DriveFormat, "ReFS", StringComparison.OrdinalIgnoreCase))
-                warnings.Add(new($"ReFS drive {letter}",
-                    "ReFS writes changes to new places on the disk, so the old data may remain.", true));
+        string letter = root.TrimEnd('\\');
+        if (DriveDetails(root) is not { } drive)
+            return warnings; // unknown drive details: no drive warnings
 
-            if (drive.DriveType != DriveType.Network && IsSolidState(letter) == true)
-                warnings.Add(new($"Solid-state drive {letter}",
-                    "SSDs and flash drives write to new memory cells and erase the old ones later, so overwriting " +
-                    "can't guarantee the old data is gone. Full-disk encryption (BitLocker) is the reliable protection.", true));
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            // Unknown drive details: no drive warnings.
-        }
+        if (drive.Type == DriveType.Network)
+            warnings.Add(new($"Network drive {letter}",
+                "the server decides where data is written and may keep snapshots or previous versions.", true));
+        else if (string.Equals(drive.Format, "ReFS", StringComparison.OrdinalIgnoreCase))
+            warnings.Add(new($"ReFS drive {letter}",
+                "ReFS writes changes to new places on the disk, so the old data may remain.", true));
+
+        if (drive.Type != DriveType.Network && IsSolidState(letter) == true)
+            warnings.Add(new($"Solid-state drive {letter}",
+                "SSDs and flash drives write to new memory cells and erase the old ones later, so overwriting " +
+                "can't guarantee the old data is gone. Full-disk encryption (BitLocker) is the reliable protection.", true));
 
         return warnings;
     }
+
+    private static readonly ConcurrentDictionary<string, (DriveType Type, string Format)?> DriveCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Drive type and file system, looked up once per drive (folders can hold thousands of files).</summary>
+    private static (DriveType Type, string Format)? DriveDetails(string root) =>
+        DriveCache.GetOrAdd(root, r =>
+        {
+            try
+            {
+                var drive = new DriveInfo(r);
+                return (drive.DriveType, drive.DriveFormat);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                return null;
+            }
+        });
 
     private static bool IsUnderOneDrive(string path)
     {
