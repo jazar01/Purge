@@ -288,6 +288,26 @@ use `--self-contained false` and leave out the compression option.
 Note that `Purge\bin\...\Purge.exe` from a plain `dotnet build` is only a
 launcher: it needs the `.dll` and `.json` files next to it.
 
+### Debugging in VS Code
+
+With the C# Dev Kit extension installed, open the folder and pick a configuration
+in the Run and Debug panel:
+
+| Configuration | What it starts |
+|---|---|
+| PurgeWindow: setup window | The window you get by running PurgeWindow.exe on its own |
+| PurgeWindow: Purge files in a folder | The "Purge files…" window |
+| PurgeWindow: Securely delete files | The "Securely delete…" window with two files |
+| PurgeWindow: Securely delete a folder | The "Securely delete…" window with a folder |
+| Purge: preview (`--whatif`) | The command line, showing what it would purge |
+| Purge: purge for real | The same command, actually purging |
+
+All but the setup window work on a throwaway folder, `%TEMP%\PurgeDebug`, which
+`.vscode\make-samples.ps1` deletes and rebuilds before every run, so debugging
+never touches real files. If a copy of PurgeWindow is already showing a
+"Securely delete" window, close it first: a new copy hands its files to the
+running one and exits, the same way it does for an Explorer multi-select.
+
 ## Making a release
 
 1. Set `<Version>` in `Directory.Build.props` and add a `## Changes in <major.minor>`
