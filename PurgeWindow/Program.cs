@@ -67,11 +67,11 @@ public static class Program
         switch (launch.Mode)
         {
             case LaunchMode.Wipe:
-                // Explorer starts one copy per selected file; the first copy shows the
-                // window and the others hand their files to it.
-                string channel = SelectionCollector.DefaultChannel;
-                var collector = SelectionCollector.TryBecomePrimary(channel);
-                if (collector is null && SelectionCollector.TrySend(channel, launch.Paths))
+                // Explorer starts one copy per selected item; the first copy shows the
+                // window and the others hand their items to it.
+                var (handedOff, collector) = SelectionCollector.Join(
+                    SelectionCollector.DefaultChannel, launch.Paths, SelectionCollector.GiveUpAfter);
+                if (handedOff)
                     return 0;
                 using (collector)
                     Application.Run(new WipeForm(launch.Paths, collector));

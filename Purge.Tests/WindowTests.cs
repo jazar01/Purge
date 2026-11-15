@@ -132,36 +132,173 @@ public sealed class ExplorerMenuTests : IDisposable
 
 public class SelectionCollectorTests
 {
-    [Fact]
-    public async Task OtherCopies_HandTheirFilesToThePrimary()
+    private static string NewChannel() => "Purge.Test." + Guid.NewGuid().ToString("N");
+
+    /// <summary>Reads what the primary has received so far, waiting briefly for <paramref name="count"/> items.</summary>
+    private static async Task<List<string>> Received(SelectionCollector primary, int count)
     {
-        string channel = "Purge.Test." + Guid.NewGuid().ToString("N");
+        var received = new List<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (received.Count < count)
+            received.Add(await primary.Paths.ReadAsync(timeout.Token));
+        return received;
+    }
+
+    [Fact]
+    public async Task OtherCopies_HandTheirItemsToThePrimary()
+    {
+        string channel = NewChannel();
         using var primary = SelectionCollector.TryBecomePrimary(channel);
         Assert.NotNull(primary);
         Assert.Null(SelectionCollector.TryBecomePrimary(channel)); // only one primary
 
-        var received = new List<string>();
-        // A generous quiet time: on a busy CI runner the sender tasks can start more than a
-        // second late, and a late sender (correctly) gets no answer.
-        var collecting = primary.CollectAsync(p => { lock (received) received.Add(p); }, TimeSpan.FromSeconds(5));
-
-        // Several "copies" starting at once, as when Explorer opens one per selected file.
-        var senders = Enumerable.Range(1, 8)
+        // Many "copies" at once, as when Explorer starts one per selected item.
+        var senders = Enumerable.Range(1, 30)
             .Select(i => Task.Run(() => SelectionCollector.TrySend(channel, [$@"C:\file{i}.txt"])))
             .ToArray();
         Assert.All(await Task.WhenAll(senders), Assert.True);
 
-        await collecting;
-        Assert.Equal(8, received.Distinct().Count());
+        Assert.Equal(30, (await Received(primary, 30)).Distinct().Count());
+    }
 
-        // Once collecting is over, a new right-click becomes a new primary.
-        using var next = SelectionCollector.TryBecomePrimary(channel);
-        Assert.NotNull(next);
+    [Fact]
+    public async Task HandOff_DoesNotWaitForTheWindow()
+    {
+        // The primary's window may be slow to open (e.g. waiting for a disk to spin up) and
+        // not reading anything yet; copies are still taken straight away.
+        string channel = NewChannel();
+        using var primary = SelectionCollector.TryBecomePrimary(channel)!;
+        await Task.Delay(500);   // nobody reads Paths meanwhile
+
+        var copies = Enumerable.Range(1, 20)
+            .Select(i => Task.Run(() => SelectionCollector.Join(channel, [$@"C:\big{i}.bin"], TimeSpan.FromSeconds(30))))
+            .ToArray();
+        var results = await Task.WhenAll(copies);
+
+        Assert.All(results, r => Assert.True(r.HandedOff));    // no extra windows
+        Assert.Equal(20, (await Received(primary, 20)).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task PrimaryStillHolding_ButNotListeningYet_CopyWaitsInsteadOfOpeningItsOwnWindow()
+    {
+        string channel = NewChannel();
+        // Something holds the primary's place for 2.5 s without listening (the old failure:
+        // copies gave up after 3 s). When it lets go, the copy should take over, not give up.
+        var holder = Task.Run(async () =>
+        {
+            using var gate = new Semaphore(1, 1, @"Local\" + channel);
+            gate.WaitOne();
+            await Task.Delay(2500);
+            gate.Release();
+        });
+        await Task.Delay(200);
+
+        var (handedOff, collector) = await Task.Run(() => SelectionCollector.Join(channel, [@"C:\x.txt"], TimeSpan.FromSeconds(30)));
+        using (collector)
+        {
+            Assert.False(handedOff);
+            Assert.NotNull(collector);   // became the primary once the place was free
+        }
+        await holder;
+    }
+
+    [Fact]
+    public async Task AfterStopListening_CopiesAreRefused_AndANewRightClickGetsItsOwnWindow()
+    {
+        string channel = NewChannel();
+        using var primary = SelectionCollector.TryBecomePrimary(channel)!;
+        primary.StopListening();   // deleting has started
+
+        Assert.False(SelectionCollector.TrySend(channel, ["late"], timeoutMs: 300));
+        var (handedOff, next) = await Task.Run(() => SelectionCollector.Join(channel, ["late"], TimeSpan.FromSeconds(10)));
+        using (next)
+        {
+            Assert.False(handedOff);
+            Assert.NotNull(next);
+        }
+    }
+
+    [Fact]
+    public void NoWindowReachable_CopyGivesUpAfterTheLimit()
+    {
+        string channel = NewChannel();
+        using var gate = new Semaphore(1, 1, @"Local\" + channel);
+        gate.WaitOne();   // a "primary" that never listens
+        try
+        {
+            var (handedOff, collector) = SelectionCollector.Join(channel, ["x"], TimeSpan.FromMilliseconds(500));
+            Assert.False(handedOff);
+            Assert.Null(collector);   // shows a window of its own rather than losing the item
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     [Fact]
     public void NoPrimary_SendFails() =>
-        Assert.False(SelectionCollector.TrySend("Purge.Test." + Guid.NewGuid().ToString("N"), ["x"], timeoutMs: 200));
+        Assert.False(SelectionCollector.TrySend(NewChannel(), ["x"], timeoutMs: 200));
+
+    [Fact]
+    public void Window_KeepsCollectingUntilDelete_ThenLateItemsAreRefused()
+    {
+        using var dir = new TempDir();
+        string first = dir.File("first.txt", 1);
+        string later = dir.File("later.txt", 1);
+        string channel = NewChannel();
+
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var collector = SelectionCollector.TryBecomePrimary(channel)!;
+                using var form = new WipeForm([first], collector);
+                form.StartPosition = FormStartPosition.Manual;
+                form.Location = new Point(-10_000, -10_000);
+                form.ShowInTaskbar = false;
+                form.Show();
+
+                // Long after the first item: still taken into the same window.
+                Pump(null, TimeSpan.FromSeconds(2.5));
+                var send = Task.Run(() => SelectionCollector.TrySend(channel, [later]));
+                Pump(() => send.IsCompleted);
+                Assert.True(send.Result);
+                Pump(() => form.PendingFiles.Count == 2);
+
+                var delete = form.DeleteWithoutConfirmingAsync();
+                Pump(() => delete.IsCompleted);
+                delete.GetAwaiter().GetResult();
+                Assert.False(File.Exists(first) || File.Exists(later));
+
+                // Once deleting has started, a new right-click gets its own window.
+                Assert.False(SelectionCollector.TrySend(channel, ["new"], timeoutMs: 300));
+            }
+            catch (Exception e)
+            {
+                error = e;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (error is not null)
+            throw new Xunit.Sdk.XunitException("UI thread failed: " + error);
+
+        static void Pump(Func<bool>? until = null, TimeSpan? time = null)
+        {
+            var deadline = DateTime.UtcNow + (time ?? TimeSpan.FromSeconds(20));
+            while ((until is null || !until()) && DateTime.UtcNow < deadline)
+            {
+                Application.DoEvents();
+                Thread.Sleep(5);
+            }
+            if (until is not null)
+                Assert.True(until(), "timed out");
+        }
+    }
 }
 
 public class WindowTests
