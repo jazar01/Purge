@@ -205,8 +205,19 @@ File Explorer right-click menu:
   its folder with the reason (hover for the full path). If the folder itself
   couldn't be removed, for example because a program or terminal has it open,
   its row says why. Double-click any of these rows to show it in File Explorer.
+  A subfolder you aren't allowed to open (such as the `Logs` folder Windows Backup
+  leaves in `WindowsImageBackup`) is listed as left with "access denied"; deleting
+  it needs an administrator.
   Whole drives, the Windows and Program Files folders, `C:\Users` and your user
   profile folder can't be securely deleted (folders inside your profile can).
+
+  While deleting, the status shows how far it has got, as a percentage of the
+  overwriting, and **Cancel** becomes **Stop**. Stopping takes effect within a
+  moment, even in the middle of a large file. Anything already deleted stays
+  deleted; a file that was being overwritten is left in place, partly
+  overwritten; anything not reached yet is left untouched. Each of these is
+  listed with the reason, as for other leftovers. Closing the window while
+  deleting asks the same question, and the window closes once it has stopped.
 
   "Purge files…" is different: it cleans up *inside* a folder by rules and never
   removes the folder you right-clicked, so a backup folder stays in place for the
@@ -322,6 +333,17 @@ running one and exits, the same way it does for an Explorer multi-select.
 The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped exe,
 a SHA-256 checksum, and the README's changes section as release notes. The build
 fails without releasing if the tag doesn't match `<Version>`.
+
+## Changes in 2.8.0
+
+* Securely delete can be stopped: while deleting, **Cancel** becomes **Stop**,
+  which stops even partway through a large file and lists what was left.
+* Securely delete shows its progress as a percentage, so a large file doesn't
+  look stuck while it is being overwritten.
+* Fixed: securely deleting a folder that contains a subfolder you can't open
+  (for example `WindowsImageBackup\...\Logs`) showed an "access denied" error
+  box and left the window stuck on its last file. That subfolder is now listed
+  as left, with the reason, and the rest finishes normally.
 
 ## Changes in 2.7.2
 

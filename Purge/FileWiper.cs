@@ -19,7 +19,13 @@ public static class FileWiper
     /// Overwriting is best effort: see <see cref="WipeCheck"/> for the cases where the old
     /// data can survive (SSDs, compressed or copy-on-write file systems, shadow copies, ...).
     /// </remarks>
-    public static void WipeAndDelete(FileInfo file, int passes)
+    /// <param name="written">Receives the bytes overwritten so far in this file (all passes and streams).</param>
+    /// <param name="cancel">
+    /// Checked between each 1 MB written. If it fires while overwriting, an
+    /// <see cref="OperationCanceledException"/> is thrown and the file is left in place,
+    /// partly overwritten.
+    /// </param>
+    public static void WipeAndDelete(FileInfo file, int passes, IProgress<long>? written = null, CancellationToken cancel = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(passes);
 
@@ -31,7 +37,7 @@ public static class FileWiper
 
         if (passes > 0)
         {
-            Overwrite(file, passes);
+            Overwrite(file, passes, written, cancel);
 
             // Obscure the original file name before deleting it.
             string renamed = Path.Combine(Path.GetDirectoryName(path)!, Path.GetRandomFileName());
@@ -53,18 +59,21 @@ public static class FileWiper
     /// Overwrites every data stream of the file (the main one and any alternate data
     /// streams) <paramref name="passes"/> times and truncates them to zero length.
     /// </summary>
-    internal static void Overwrite(FileInfo file, int passes)
+    internal static void Overwrite(FileInfo file, int passes, IProgress<long>? written = null, CancellationToken cancel = default)
     {
+        long total = 0;
+
         // Alternate data streams can hold real content (some apps store data or
         // thumbnails there), and deleting the file would just free their clusters.
         foreach (string stream in AlternateStreams(file.FullName))
-            OverwriteStream(file.FullName + stream, passes);
+            OverwriteStream(file.FullName + stream, passes, ref total, written, cancel);
 
-        OverwriteStream(file.FullName, passes);
+        OverwriteStream(file.FullName, passes, ref total, written, cancel);
     }
 
-    private static void OverwriteStream(string path, int passes)
+    private static void OverwriteStream(string path, int passes, ref long total, IProgress<long>? written, CancellationToken cancel)
     {
+        cancel.ThrowIfCancellationRequested();
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None,
                                       bufferSize: 1, FileOptions.WriteThrough);
         long length = fs.Length;
@@ -76,10 +85,13 @@ public static class FileWiper
             long remaining = length;
             while (remaining > 0)
             {
+                cancel.ThrowIfCancellationRequested();
                 int count = (int)Math.Min(buffer.Length, remaining);
                 RandomNumberGenerator.Fill(buffer.AsSpan(0, count));
                 fs.Write(buffer, 0, count);
                 remaining -= count;
+                total += count;
+                written?.Report(total);
             }
             fs.Flush(flushToDisk: true);
         }

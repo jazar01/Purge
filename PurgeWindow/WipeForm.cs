@@ -35,6 +35,8 @@ public sealed class WipeForm : Form
     private int _scanning;
     private bool _busy;
     private bool _showHint;
+    private CancellationTokenSource? _stop;
+    private bool _closeWhenStopped;
 
     /// <param name="paths">The files and folders to delete.</param>
     /// <param name="collector">
@@ -86,7 +88,14 @@ public sealed class WipeForm : Form
 
         _status = Ui.Label("");
         _delete = Ui.Button("Delete", async (_, _) => await DeleteAsync());
-        _close = Ui.Button("Cancel", (_, _) => Close());
+        // While deleting, this button is "Stop".
+        _close = Ui.Button("Cancel", (_, _) =>
+        {
+            if (_busy)
+                AskToStop();
+            else
+                Close();
+        });
         CancelButton = _close;
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(10) };
@@ -135,10 +144,53 @@ public sealed class WipeForm : Form
     {
         if (_busy)
         {
+            // Closing while deleting means stopping first; the window closes once it has stopped.
             e.Cancel = true;
-            MessageBox.Show(this, "Please wait until the deleting is finished.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            if (_stop?.IsCancellationRequested == true || AskToStop())
+                _closeWhenStopped = true;
         }
         base.OnFormClosing(e);
+    }
+
+    /// <summary>Asks whether to stop deleting, and stops if the answer is yes.</summary>
+    /// <returns>True if deleting is stopping.</returns>
+    private bool AskToStop()
+    {
+        if (_stop is null || _stop.IsCancellationRequested)
+            return _stop is not null;
+
+        var answer = MessageBox.Show(this,
+            "Stop deleting?\n\n" +
+            "Whatever has already been deleted can't be brought back. A file being overwritten right now is left " +
+            "partly overwritten, and anything not reached yet is left untouched.",
+            Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+        if (answer != DialogResult.Yes || !_busy)
+            return false;
+
+        Stop();
+        return true;
+    }
+
+    /// <summary>Stops deleting without asking (the Stop button asks first).</summary>
+    public void Stop()
+    {
+        if (_stop is null || _stop.IsCancellationRequested)
+            return;
+        _stop.Cancel();
+        _close.Enabled = false;
+        _close.Text = "Stopping…";
+        _status.Text = "Stopping…";
+    }
+
+    /// <summary>True while deleting (for tests).</summary>
+    public bool IsDeleting => _busy;
+
+    /// <summary>The overwrite passes chosen in the window.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public int Passes
+    {
+        get => (int)_passes.Value;
+        set => _passes.Value = value;
     }
 
     /// <summary>Files listed and ready to delete.</summary>
@@ -327,83 +379,187 @@ public sealed class WipeForm : Form
         }
 
         _busy = true;
-        _passes.Enabled = _force.Enabled = _close.Enabled = _delete.Enabled = false;
+        _stop = new CancellationTokenSource();
+        var stop = _stop.Token;
+        _passes.Enabled = _force.Enabled = _delete.Enabled = false;
+        _close.Text = "Stop";
 
         int deleted = 0, failed = 0;
-        foreach (var item in items)
+        try
         {
-            item.EnsureVisible();
-
-            if (item.Tag is FileInfo file)
+            foreach (var item in items)
             {
-                item.SubItems[3].Text = passes > 0 ? "Overwriting…" : "Deleting…";
-                var result = await Task.Run(() => SecureDelete.Delete(file.FullName, passes, force));
-                if (result.Deleted)
+                item.EnsureVisible();
+                string path = item.Tag is FolderItem f ? f.Path : ((FileInfo)item.Tag!).FullName;
+
+                if (stop.IsCancellationRequested)
                 {
-                    Done(item, "Deleted");
-                    deleted++;
+                    LeftBehind(item, path, "Not deleted: stopped before reaching it");
+                    failed++;
+                    continue;
                 }
-                else
+
+                try
                 {
-                    Failed(item, "Failed: " + Explain(result.Error!));
-                    item.Tag = file.FullName; // double-click shows it in File Explorer
-                    item.ToolTipText = $"{file.FullName}\n{Explain(result.Error!)}";
-                    _showHint = true;
+                    if (item.Tag is FileInfo file)
+                        (deleted, failed) = Add((deleted, failed), await DeleteFileAsync(item, file, passes, force, stop));
+                    else if (item.Tag is FolderItem folder)
+                        (deleted, failed) = Add((deleted, failed), await DeleteFolderAsync(item, folder.Contents!, passes, force, stop));
+                }
+                catch (Exception e)
+                {
+                    // Anything unexpected is shown against the item; the rest still goes ahead.
+                    LeftBehind(item, path, "Failed: " + e.Message);
                     failed++;
                 }
+
+                if (item.Tag is FileInfo or FolderItem)
+                    item.Tag = null; // done; a path left here means "show this in File Explorer"
+                if (!stop.IsCancellationRequested)
+                    _status.Text = $"Deleted {Plural(deleted, "file")}…";
             }
-            else if (item.Tag is FolderItem folder)
-            {
-                var contents = folder.Contents!;
-                // Progress reports are posted to the window and can arrive after the delete
-                // has finished; ignore those so they don't overwrite the final status.
-                bool finished = false;
-                var progress = new Progress<int>(n =>
-                {
-                    if (!finished)
-                        item.SubItems[3].Text = $"Deleting {n} of {contents.Files.Count}…";
-                });
-                var result = await Task.Run(() => FolderWipe.Delete(contents, passes, force, progress));
-                finished = true;
-                deleted += result.FilesDeleted;
-
-                if (result.FolderRemoved && result.Failures.Count == 0)
-                {
-                    Done(item, "Deleted");
-                }
-                else
-                {
-                    var inside = result.Failures.Where(f => !SamePath(f.Path, contents.Path)).ToList();
-                    var self = result.Failures.FirstOrDefault(f => SamePath(f.Path, contents.Path));
-
-                    Failed(item, result.FolderRemoved
-                        ? $"Deleted, with {Plural(inside.Count, "problem")} (listed below)"
-                        : inside.Count == 0
-                            ? $"Not removed: {self?.Error}"
-                            : $"Partly deleted: {Plural(inside.Count, "item")} left (listed below)");
-                    if (!result.FolderRemoved)
-                    {
-                        item.Tag = contents.Path; // double-click shows it in File Explorer
-                        item.ToolTipText = $"{contents.Path}\n{(inside.Count == 0 ? self?.Error : FolderWipe.KeptMessage)}";
-                    }
-                    failed += Math.Max(inside.Count, result.FolderRemoved ? 0 : 1);
-                    ShowFailures(item, inside);
-                    _showHint = true;
-                }
-            }
-
-            if (item.Tag is FileInfo or FolderItem)
-                item.Tag = null; // done; a path left here means "show this in File Explorer"
-            _status.Text = $"Deleted {Plural(deleted, "file")}…";
+        }
+        finally
+        {
+            bool stopped = stop.IsCancellationRequested;
+            _busy = false;
+            _stop.Dispose();
+            _stop = null;
+            _close.Enabled = true;
+            _close.Text = "Close";
+            _status.Text = (stopped ? "Stopped. " : "") +
+                           $"Deleted {Plural(deleted, "file")}." +
+                           (failed > 0 ? $" {Plural(failed, "item")} {(stopped ? "not" : "could not be")} deleted." : "") +
+                           (_showHint ? " Double-click an item to show it in File Explorer." : "");
+            _list.AutoResizeColumn(3, ColumnHeaderAutoResizeStyle.ColumnContent);
+            _status.ForeColor = failed > 0 ? Color.Firebrick : SystemColors.ControlText;
         }
 
-        _busy = false;
-        _close.Enabled = true;
-        _close.Text = "Close";
-        _status.Text = $"Deleted {Plural(deleted, "file")}." + (failed > 0 ? $" {Plural(failed, "item")} could not be deleted." : "") +
-                       (_showHint ? " Double-click an item to show it in File Explorer." : "");
-        _list.AutoResizeColumn(3, ColumnHeaderAutoResizeStyle.ColumnContent);
-        _status.ForeColor = failed > 0 ? Color.Firebrick : SystemColors.ControlText;
+        if (_closeWhenStopped)
+            Close();
+    }
+
+    private static (int, int) Add((int Deleted, int Failed) a, (int Deleted, int Failed) b) =>
+        (a.Deleted + b.Deleted, a.Failed + b.Failed);
+
+    /// <summary>Overwrites and deletes one selected file. Returns (files deleted, items left).</summary>
+    private async Task<(int, int)> DeleteFileAsync(ListViewItem item, FileInfo file, int passes, bool force, CancellationToken stop)
+    {
+        string action = passes > 0 ? "Overwriting…" : "Deleting…";
+        item.SubItems[3].Text = action;
+
+        long work = file.Length * passes, written = 0;
+        bool finished = false;
+        var ui = new Progress<long>(n =>
+        {
+            if (!finished)
+                item.SubItems[3].Text = action + Percent(n, work);
+        });
+        var progress = Throttle(ui, n => written = n);
+
+        try
+        {
+            var result = await Task.Run(() => SecureDelete.Delete(file.FullName, passes, force, progress, stop));
+            if (result.Deleted)
+            {
+                Done(item, "Deleted");
+                return (1, 0);
+            }
+            LeftBehind(item, file.FullName, "Failed: " + Explain(result.Error!));
+            return (0, 1);
+        }
+        catch (OperationCanceledException)
+        {
+            LeftBehind(item, file.FullName, written > 0
+                ? Sentence(SecureDelete.StoppedWhileOverwriting)
+                : "Not deleted: stopped before reaching it");
+            return (0, 1);
+        }
+        finally
+        {
+            finished = true;
+        }
+    }
+
+    /// <summary>Securely deletes one selected folder. Returns (files deleted, items left).</summary>
+    private async Task<(int, int)> DeleteFolderAsync(ListViewItem item, FolderContents contents, int passes, bool force, CancellationToken stop)
+    {
+        long work = contents.TotalSize * passes;
+
+        // Progress reports are posted to the window and can arrive after the delete
+        // has finished; ignore those so they don't overwrite the final status.
+        bool finished = false;
+        var progress = new Progress<WipeProgress>(p =>
+        {
+            if (!finished && !stop.IsCancellationRequested)
+                item.SubItems[3].Text = $"Deleting {Math.Min(p.FilesDone + 1, contents.Files.Count)} of {contents.Files.Count}…" + Percent(p.BytesWritten, work);
+        });
+        item.SubItems[3].Text = $"Deleting 1 of {contents.Files.Count}…";
+        var result = await Task.Run(() => FolderWipe.Delete(contents, passes, force, progress, stop));
+        finished = true;
+
+        if (result.FolderRemoved && result.Failures.Count == 0)
+        {
+            Done(item, "Deleted");
+            return (result.FilesDeleted, 0);
+        }
+
+        var inside = result.Failures.Where(f => !SamePath(f.Path, contents.Path)).ToList();
+        var self = result.Failures.FirstOrDefault(f => SamePath(f.Path, contents.Path));
+
+        Failed(item, result.Stopped
+            ? $"Stopped: {Plural(inside.Count, "item")} left (listed below)"
+            : result.FolderRemoved
+                ? $"Deleted, with {Plural(inside.Count, "problem")} (listed below)"
+                : inside.Count == 0
+                    ? $"Not removed: {self?.Error}"
+                    : $"Partly deleted: {Plural(inside.Count, "item")} left (listed below)");
+        if (!result.FolderRemoved)
+        {
+            item.Tag = contents.Path; // double-click shows it in File Explorer
+            item.ToolTipText = $"{contents.Path}\n{(inside.Count == 0 ? self?.Error : FolderWipe.KeptMessage)}";
+        }
+        ShowFailures(item, inside);
+        _showHint = true;
+        return (result.FilesDeleted, Math.Max(inside.Count, result.FolderRemoved ? 0 : 1));
+    }
+
+    /// <summary>Marks an item as left behind, with why; double-clicking it shows it in File Explorer.</summary>
+    private void LeftBehind(ListViewItem item, string path, string status)
+    {
+        Failed(item, status);
+        item.Tag = path;
+        item.ToolTipText = $"{path}\n{status}";
+        _showHint = true;
+    }
+
+    /// <summary>" 37%" of the work done, or "" when there's nothing to measure.</summary>
+    private static string Percent(long done, long work) =>
+        work > 0 ? $" {Math.Min(99, done * 100 / work)}%" : "";
+
+    private static string Sentence(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+
+    /// <summary>
+    /// Passes every value to <paramref name="always"/> (on the calling thread) but only one every
+    /// <see cref="FolderWipe.ProgressInterval"/> on to <paramref name="ui"/>, which posts to the window.
+    /// </summary>
+    private static IProgress<long> Throttle(IProgress<long> ui, Action<long> always)
+    {
+        var since = System.Diagnostics.Stopwatch.StartNew();
+        return new Callback<long>(n =>
+        {
+            always(n);
+            if (since.Elapsed >= FolderWipe.ProgressInterval)
+            {
+                since.Restart();
+                ui.Report(n);
+            }
+        });
+    }
+
+    private sealed class Callback<T>(Action<T> action) : IProgress<T>
+    {
+        public void Report(T value) => action(value);
     }
 
     private static void Done(ListViewItem item, string status)

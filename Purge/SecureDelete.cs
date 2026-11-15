@@ -19,7 +19,13 @@ public static class SecureDelete
     /// ordinary file problems; they are returned in <see cref="DeleteResult.Error"/>.
     /// </summary>
     /// <param name="force">Also delete read-only files.</param>
-    public static DeleteResult Delete(string path, int passes, bool force)
+    /// <param name="written">Receives the bytes overwritten so far in this file.</param>
+    /// <param name="cancel">
+    /// Stops the overwrite; <see cref="OperationCanceledException"/> is thrown (not returned)
+    /// and the file is left in place, possibly partly overwritten.
+    /// </param>
+    public static DeleteResult Delete(string path, int passes, bool force,
+                                      IProgress<long>? written = null, CancellationToken cancel = default)
     {
         try
         {
@@ -37,7 +43,7 @@ public static class SecureDelete
                 file.IsReadOnly = false;
             }
 
-            FileWiper.WipeAndDelete(file, passes);
+            FileWiper.WipeAndDelete(file, passes, written, cancel);
             return new(path, null);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException or NotSupportedException)
@@ -45,6 +51,13 @@ public static class SecureDelete
             return new(path, Reason(e));
         }
     }
+
+    /// <summary>Why a file was left when deleting was stopped while it was being overwritten.</summary>
+    public const string StoppedWhileOverwriting =
+        "stopped partway: partly overwritten, not deleted";
+
+    /// <summary>Why a file was left when deleting was stopped before it was reached.</summary>
+    public const string StoppedBefore = "not deleted: stopped before reaching it";
 
     private const int ErrorSharingViolation = 32;
     private const int ErrorLockViolation = 33;
