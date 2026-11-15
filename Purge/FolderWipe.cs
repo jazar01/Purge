@@ -30,7 +30,13 @@ public sealed class FolderContents
 /// <param name="FilesDeleted">Files overwritten and deleted.</param>
 /// <param name="Failures">Files, links and folders that could not be removed, and why.</param>
 /// <param name="FolderRemoved">True if the folder itself is gone.</param>
-public sealed record FolderDeleteResult(int FilesDeleted, IReadOnlyList<DeleteResult> Failures, bool FolderRemoved);
+/// <param name="Stopped">True if deleting was stopped (cancelled) before it finished.</param>
+public sealed record FolderDeleteResult(int FilesDeleted, IReadOnlyList<DeleteResult> Failures, bool FolderRemoved, bool Stopped = false);
+
+/// <summary>How far a folder delete has got.</summary>
+/// <param name="FilesDone">Files finished (deleted or failed).</param>
+/// <param name="BytesWritten">Bytes overwritten so far, over all files and passes.</param>
+public readonly record struct WipeProgress(int FilesDone, long BytesWritten);
 
 /// <summary>
 /// Securely deletes a whole folder: every file in it and its subfolders is overwritten
@@ -150,22 +156,58 @@ public static class FolderWipe
     /// <summary>
     /// Overwrites and deletes every file, removes links, then removes the emptied folders.
     /// </summary>
-    /// <param name="progress">Receives the number of files processed so far.</param>
+    /// <param name="progress">
+    /// Receives how far it has got: after each file, and while overwriting at most every
+    /// <see cref="ProgressInterval"/>.
+    /// </param>
+    /// <param name="cancel">
+    /// Stops deleting, even partway through overwriting a large file. Nothing is thrown:
+    /// the result has <see cref="FolderDeleteResult.Stopped"/> set, and every file left
+    /// behind is listed in its failures, with why.
+    /// </param>
     public static FolderDeleteResult Delete(FolderContents contents, int passes, bool force,
-                                            IProgress<int>? progress = null, CancellationToken cancel = default)
+                                            IProgress<WipeProgress>? progress = null, CancellationToken cancel = default)
     {
         var failures = new List<DeleteResult>(contents.Unreadable);
         int deleted = 0, done = 0;
+        long bytesBefore = 0, fileBytes = 0;
+        var sinceReport = System.Diagnostics.Stopwatch.StartNew();
 
-        foreach (var file in contents.Files)
+        var written = new Callback<long>(n =>
         {
-            cancel.ThrowIfCancellationRequested();
-            var result = SecureDelete.Delete(file.FullName, passes, force);
+            fileBytes = n;
+            if (sinceReport.Elapsed >= ProgressInterval)
+            {
+                sinceReport.Restart();
+                progress?.Report(new(done, bytesBefore + n));
+            }
+        });
+
+        var files = contents.Files;
+        for (int i = 0; i < files.Count; i++)
+        {
+            fileBytes = 0;
+            DeleteResult result;
+            try
+            {
+                cancel.ThrowIfCancellationRequested();
+                result = SecureDelete.Delete(files[i].FullName, passes, force, written, cancel);
+            }
+            catch (OperationCanceledException)
+            {
+                // Everything from this file on is left. Say which file was partly overwritten.
+                failures.Add(new(files[i].FullName, fileBytes > 0 ? SecureDelete.StoppedWhileOverwriting : SecureDelete.StoppedBefore));
+                failures.AddRange(files.Skip(i + 1).Select(f => new DeleteResult(f.FullName, SecureDelete.StoppedBefore)));
+                return new FolderDeleteResult(deleted, failures, FolderRemoved: false, Stopped: true);
+            }
+
             if (result.Deleted)
                 deleted++;
             else
                 failures.Add(result);
-            progress?.Report(++done);
+            bytesBefore += fileBytes;
+            sinceReport.Restart();
+            progress?.Report(new(++done, bytesBefore));
         }
 
         foreach (string link in contents.Links)
@@ -186,18 +228,20 @@ public static class FolderWipe
 
         foreach (string folder in contents.Folders) // deepest first
         {
-            if (!Directory.Exists(folder))
-                continue;
-            if (Directory.EnumerateFileSystemEntries(folder).Any())
-                continue; // still holds something that couldn't be deleted (already reported)
-
             try
             {
+                if (!Directory.Exists(folder))
+                    continue;
+                if (Directory.EnumerateFileSystemEntries(folder).Any())
+                    continue; // still holds something that couldn't be deleted (already reported)
+
                 RemoveEmptyFolder(folder, obscureName: passes > 0);
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
-                failures.Add(new(folder, SecureDelete.Reason(e)));
+                // E.g. a subfolder that can't even be opened (already reported by the scan).
+                if (!failures.Any(f => SamePath(f.Path, folder)))
+                    failures.Add(new(folder, SecureDelete.Reason(e)));
             }
         }
 
@@ -210,6 +254,15 @@ public static class FolderWipe
         }
 
         return new FolderDeleteResult(deleted, failures, removed);
+    }
+
+    /// <summary>The most often progress is reported while a file is being overwritten.</summary>
+    public static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>An <see cref="IProgress{T}"/> that runs its action right away, on the calling thread.</summary>
+    private sealed class Callback<T>(Action<T> action) : IProgress<T>
+    {
+        public void Report(T value) => action(value);
     }
 
     /// <summary>The reason given for a folder kept only because something inside it is left.</summary>
