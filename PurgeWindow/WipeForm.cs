@@ -34,6 +34,7 @@ public sealed class WipeForm : Form
     private bool _gathering;
     private int _scanning;
     private bool _busy;
+    private bool _showHint;
 
     /// <param name="paths">The files and folders to delete.</param>
     /// <param name="collector">
@@ -64,10 +65,15 @@ public sealed class WipeForm : Form
             HeaderStyle = ColumnHeaderStyle.Nonclickable,
             ShowItemToolTips = true,
         };
-        _list.Columns.Add("Name", 200);
-        _list.Columns.Add("Location", 230);
-        _list.Columns.Add("Size", 80, HorizontalAlignment.Right);
-        _list.Columns.Add("Status", 180);
+        _list.Columns.Add("Name", 170);
+        _list.Columns.Add("Location", 170);
+        _list.Columns.Add("Size", 70, HorizontalAlignment.Right);
+        _list.Columns.Add("Status", 270);
+        _list.ItemActivate += (_, _) =>
+        {
+            if (_list.FocusedItem?.Tag is string path)
+                ShowInExplorer(path);
+        };
 
         _warnings = Ui.Label("", maxWidth: 690);
         _warnings.ForeColor = Color.FromArgb(150, 80, 0);
@@ -286,7 +292,10 @@ public sealed class WipeForm : Form
         }
     }
 
-    private async Task DeleteAsync()
+    /// <summary>Deletes everything listed without asking first (for tests).</summary>
+    public Task DeleteWithoutConfirmingAsync() => DeleteAsync(confirm: false);
+
+    private async Task DeleteAsync(bool confirm = true)
     {
         var items = PendingItems.ToList();
         var folders = items.Select(i => i.Tag).OfType<FolderItem>().ToList();
@@ -307,12 +316,15 @@ public sealed class WipeForm : Form
         string how = passes == 0
             ? "Files will be deleted without being overwritten."
             : $"Every file will be overwritten {Plural(passes, "time")} and then deleted.";
-        var answer = MessageBox.Show(this,
-            $"Permanently delete {what}, {ByteSize.Format(total)}?\n\n{how} " +
-            "Nothing goes to the Recycle Bin, and it cannot be recovered.",
-            Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
-        if (answer != DialogResult.Yes)
-            return;
+        if (confirm)
+        {
+            var answer = MessageBox.Show(this,
+                $"Permanently delete {what}, {ByteSize.Format(total)}?\n\n{how} " +
+                "Nothing goes to the Recycle Bin, and it cannot be recovered.",
+                Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes)
+                return;
+        }
 
         _busy = true;
         _passes.Enabled = _force.Enabled = _close.Enabled = _delete.Enabled = false;
@@ -334,14 +346,25 @@ public sealed class WipeForm : Form
                 else
                 {
                     Failed(item, "Failed: " + Explain(result.Error!));
+                    item.Tag = file.FullName; // double-click shows it in File Explorer
+                    item.ToolTipText = $"{file.FullName}\n{Explain(result.Error!)}";
+                    _showHint = true;
                     failed++;
                 }
             }
             else if (item.Tag is FolderItem folder)
             {
                 var contents = folder.Contents!;
-                var progress = new Progress<int>(n => item.SubItems[3].Text = $"Deleting {n} of {contents.Files.Count}…");
+                // Progress reports are posted to the window and can arrive after the delete
+                // has finished; ignore those so they don't overwrite the final status.
+                bool finished = false;
+                var progress = new Progress<int>(n =>
+                {
+                    if (!finished)
+                        item.SubItems[3].Text = $"Deleting {n} of {contents.Files.Count}…";
+                });
                 var result = await Task.Run(() => FolderWipe.Delete(contents, passes, force, progress));
+                finished = true;
                 deleted += result.FilesDeleted;
 
                 if (result.FolderRemoved && result.Failures.Count == 0)
@@ -350,22 +373,36 @@ public sealed class WipeForm : Form
                 }
                 else
                 {
+                    var inside = result.Failures.Where(f => !SamePath(f.Path, contents.Path)).ToList();
+                    var self = result.Failures.FirstOrDefault(f => SamePath(f.Path, contents.Path));
+
                     Failed(item, result.FolderRemoved
-                        ? $"Deleted, with {Plural(result.Failures.Count, "problem")}"
-                        : $"Partly deleted: {Plural(result.Failures.Count, "item")} left");
-                    failed += result.Failures.Count(f => !string.Equals(f.Path, contents.Path, StringComparison.OrdinalIgnoreCase));
-                    ShowFailures(item, contents.Path, result.Failures);
+                        ? $"Deleted, with {Plural(inside.Count, "problem")} (listed below)"
+                        : inside.Count == 0
+                            ? $"Not removed: {self?.Error}"
+                            : $"Partly deleted: {Plural(inside.Count, "item")} left (listed below)");
+                    if (!result.FolderRemoved)
+                    {
+                        item.Tag = contents.Path; // double-click shows it in File Explorer
+                        item.ToolTipText = $"{contents.Path}\n{(inside.Count == 0 ? self?.Error : FolderWipe.KeptMessage)}";
+                    }
+                    failed += Math.Max(inside.Count, result.FolderRemoved ? 0 : 1);
+                    ShowFailures(item, inside);
+                    _showHint = true;
                 }
             }
 
-            item.Tag = null; // done, either way
+            if (item.Tag is FileInfo or FolderItem)
+                item.Tag = null; // done; a path left here means "show this in File Explorer"
             _status.Text = $"Deleted {Plural(deleted, "file")}…";
         }
 
         _busy = false;
         _close.Enabled = true;
         _close.Text = "Close";
-        _status.Text = $"Deleted {Plural(deleted, "file")}." + (failed > 0 ? $" {Plural(failed, "item")} could not be deleted." : "");
+        _status.Text = $"Deleted {Plural(deleted, "file")}." + (failed > 0 ? $" {Plural(failed, "item")} could not be deleted." : "") +
+                       (_showHint ? " Double-click an item to show it in File Explorer." : "");
+        _list.AutoResizeColumn(3, ColumnHeaderAutoResizeStyle.ColumnContent);
         _status.ForeColor = failed > 0 ? Color.Firebrick : SystemColors.ControlText;
     }
 
@@ -384,27 +421,67 @@ public sealed class WipeForm : Form
     private static string Explain(string error) =>
         error == "read-only" ? "read-only (tick the box to include)" : error;
 
-    /// <summary>Lists what was left behind in a folder, as indented rows under it.</summary>
-    private void ShowFailures(ListViewItem folderItem, string folderPath, IReadOnlyList<DeleteResult> failures)
+    /// <summary>
+    /// Lists what was left behind in a folder, with the reason, as indented rows under it.
+    /// Double-clicking a row shows that item in File Explorer.
+    /// </summary>
+    private void ShowFailures(ListViewItem folderItem, IReadOnlyList<DeleteResult> failures)
     {
         int index = folderItem.Index + 1;
-        foreach (var failure in failures.Where(f => !string.Equals(f.Path, folderPath, StringComparison.OrdinalIgnoreCase)).Take(MaxFailureRows))
+        foreach (var failure in failures.Take(MaxFailureRows))
         {
+            string reason = Explain(failure.Error!);
             var row = new ListViewItem("    ↳ " + Path.GetFileName(failure.Path))
             {
                 ForeColor = Color.Firebrick,
-                ToolTipText = failure.Path,
+                ToolTipText = $"{failure.Path}\n{reason}",
+                Tag = failure.Path,
             };
             row.SubItems.Add(Path.GetDirectoryName(failure.Path) ?? "");
-            row.SubItems.Add("");
-            row.SubItems.Add(Explain(failure.Error!));
+            row.SubItems.Add(File.Exists(failure.Path) ? ByteSize.Format(new FileInfo(failure.Path).Length) : "");
+            row.SubItems.Add(reason);
             _list.Items.Insert(index++, row);
         }
 
-        int more = failures.Count(f => !string.Equals(f.Path, folderPath, StringComparison.OrdinalIgnoreCase)) - MaxFailureRows;
-        if (more > 0)
-            _list.Items.Insert(index, new ListViewItem($"    … and {more} more") { ForeColor = Color.Firebrick });
+        if (failures.Count > MaxFailureRows)
+        {
+            _list.Items.Insert(index, new ListViewItem($"    … and {failures.Count - MaxFailureRows} more (double-click the folder to see them)")
+            {
+                ForeColor = Color.Firebrick,
+                Tag = folderItem.Tag as string,
+            });
+        }
     }
+
+    /// <summary>Opens File Explorer with the item selected (or its folder, if it's gone).</summary>
+    private static void ShowInExplorer(string path)
+    {
+        try
+        {
+            if (File.Exists(path) || Directory.Exists(path))
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+            else if (Path.GetDirectoryName(path) is { } parent && Directory.Exists(parent))
+                System.Diagnostics.Process.Start("explorer.exe", $"\"{parent}\"");
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // Explorer couldn't be started; nothing more to do.
+        }
+    }
+
+    /// <summary>The paths of the rows listing what was left behind (for tests).</summary>
+    public IReadOnlyList<(string Path, string Reason)> LeftoverRows =>
+        _list.Items.Cast<ListViewItem>()
+             .Where(i => i.Tag is string && i.Text.StartsWith("    ↳ ", StringComparison.Ordinal))
+             .Select(i => ((string)i.Tag!, i.SubItems[3].Text))
+             .ToList();
+
+    /// <summary>The Status text of the row for a selected path (for tests).</summary>
+    public string StatusOf(string path) =>
+        _list.Items.Cast<ListViewItem>().First(i => string.Equals(i.ToolTipText.Split('\n')[0], path, StringComparison.OrdinalIgnoreCase)).SubItems[3].Text;
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(a.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
 
     private static string Summary(int files, int folders) =>
         (files, folders) switch

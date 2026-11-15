@@ -23,10 +23,12 @@ Compress-Archive -Path publish/Purge.exe, publish/PurgeWindow.exe -DestinationPa
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $(Split-Path $zip -Leaf)" | Set-Content -NoNewline "$zip.sha256"
 
-# Release notes: the README's "Changes in <major.minor>" section, plus download instructions.
+# Release notes: the README's "Changes in <version>" section (or, failing that,
+# "Changes in <major.minor>"), plus download instructions.
 $minor = ($version -split '\.')[0..1] -join '.'
 $lines = Get-Content README.md
-$start = [array]::IndexOf($lines, "## Changes in $minor")
+$start = [array]::IndexOf($lines, "## Changes in $version")
+if ($start -lt 0) { $start = [array]::IndexOf($lines, "## Changes in $minor") }
 $changes = @()
 if ($start -ge 0) {
     foreach ($line in $lines[($start + 1)..($lines.Count - 1)]) {

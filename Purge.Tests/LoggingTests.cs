@@ -116,7 +116,7 @@ public class LogOptionTests
 
         string[] lines = File.ReadAllLines(logPath);
         Assert.All(lines, l => Assert.Matches(Stamp, l));
-        Assert.Contains("=== Purge 2.7.0 started: Purge -d 30 --log", lines[0]);
+        Assert.Contains("=== Purge 2.7.1 started: Purge -d 30 --log", lines[0]);
         Assert.Contains(lines, l => l.Contains("Purging (age 40 days)") && l.EndsWith("old.txt"));
         Assert.Contains(lines, l => l.Contains("Files purged: 1   Files retained: 0"));
         Assert.EndsWith("=== Finished, exit code 0", lines[^1]);
