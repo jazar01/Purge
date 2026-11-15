@@ -303,6 +303,14 @@ The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped ex
 a SHA-256 checksum, and the README's changes section as release notes. The build
 fails without releasing if the tag doesn't match `<Version>`.
 
+## Changes in 2.7.2
+
+* Fixed: Securely delete could wipe a folder's contents but not remove the
+  folder itself ("in use by another program"). Explorer starts Purge with the
+  folder you are viewing as its working folder, so when that was the folder
+  being deleted, Purge's own window kept it in use. Purge now moves out of it
+  on startup.
+
 ## Changes in 2.7.1
 
 * Securely delete: when a folder can't be fully removed, the window now lists

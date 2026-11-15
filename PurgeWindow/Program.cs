@@ -5,9 +5,33 @@ namespace PurgeWindow;
 /// </summary>
 public static class Program
 {
+    /// <summary>
+    /// Moves this process's working folder to the folder PurgeWindow.exe is in.
+    /// </summary>
+    /// <remarks>
+    /// Explorer starts the program with the folder being viewed as its working folder.
+    /// Windows won't remove a folder that a running program is in, so when that is the
+    /// folder being securely deleted (e.g. right-clicked in the navigation pane while
+    /// viewing it), Purge itself would stop it from being removed.
+    /// </remarks>
+    public static void LeaveStartingFolder()
+    {
+        try
+        {
+            if (Path.GetDirectoryName(Environment.ProcessPath) is { Length: > 0 } exeFolder)
+                Environment.CurrentDirectory = exeFolder;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            // Keep the starting folder; at worst that one folder can't be removed.
+        }
+    }
+
     [STAThread]
     public static int Main(string[] args)
     {
+        LeaveStartingFolder();
+
         LaunchArgs launch;
         try
         {
