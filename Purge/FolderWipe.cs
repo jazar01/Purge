@@ -208,7 +208,8 @@ public static class FolderWipe
         return new FolderDeleteResult(deleted, failures, removed);
     }
 
-    private static void RemoveEmptyFolder(string folder, bool obscureName)
+    /// <summary>Removes an empty folder, clearing its read-only flag and optionally renaming it first.</summary>
+    internal static void RemoveEmptyFolder(string folder, bool obscureName)
     {
         // A folder's read-only flag is mostly used by Explorer for customised folders and
         // doesn't protect it, but it does block deleting, so clear it.

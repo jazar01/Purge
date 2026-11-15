@@ -12,7 +12,8 @@ public sealed record PurgeOptions(
     bool Prompt = false,
     bool Recurse = false,
     string? ExcludeFile = null,
-    FileSelection? Selection = null);
+    FileSelection? Selection = null,
+    bool RemoveEmptyFolders = false);
 
 /// <summary>Process exit codes, so scripts and scheduled tasks can detect problems.</summary>
 public static class ExitCodes
@@ -55,10 +56,13 @@ public sealed class PurgeProcessor
     /// <summary>Files that could not be purged in the last <see cref="Run"/>.</summary>
     public int Failed { get; private set; }
 
+    /// <summary>Empty folders removed (or, with --whatif, that would be removed) by the last <see cref="Run"/>.</summary>
+    public int FoldersRemoved { get; private set; }
+
     public int Run(PurgeOptions options, DateTime? nowUtc = null)
     {
         var stopwatch = Stopwatch.StartNew();
-        Purged = Retained = Failed = 0;
+        Purged = Retained = Failed = FoldersRemoved = 0;
 
         if (options.Prompt && !options.WhatIf && _readKey is null)
         {
@@ -91,7 +95,7 @@ public sealed class PurgeProcessor
             string excludePath = Path.GetFullPath(exclude);
             folders = folders
                 .Select(f => new FileList(f.Items.Where(e =>
-                    !string.Equals(e.File.FullName, excludePath, StringComparison.OrdinalIgnoreCase))))
+                    !string.Equals(e.File.FullName, excludePath, StringComparison.OrdinalIgnoreCase)), f.Folder))
                 .ToList();
         }
 
@@ -110,6 +114,7 @@ public sealed class PurgeProcessor
         int purged = 0, retained = 0, failed = 0;
         bool confirmAll = false, quit = false;
         var notedDrives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var purgedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string verb = options.WhatIf ? "Would purge" : "Purging";
 
         foreach (var entry in folders.SelectMany(f => f.Items))
@@ -136,6 +141,7 @@ public sealed class PurgeProcessor
             if (options.WhatIf)
             {
                 purged++;
+                purgedPaths.Add(entry.File.FullName);
                 continue;
             }
 
@@ -165,6 +171,7 @@ public sealed class PurgeProcessor
 
                 FileWiper.WipeAndDelete(entry.File, options.SecurityLevel);
                 purged++;
+                purgedPaths.Add(entry.File.FullName);
             }
             catch (UnauthorizedAccessException)
             {
@@ -181,11 +188,17 @@ public sealed class PurgeProcessor
             }
         }
 
-        (Purged, Retained, Failed) = (purged, retained, failed);
+        int foldersRemoved = 0;
+        if (options.RemoveEmptyFolders && options.Recurse)
+            foldersRemoved = RemoveEmptyFolders(folders, purgedPaths, options, ref failed);
+
+        (Purged, Retained, Failed, FoldersRemoved) = (purged, retained, failed, foldersRemoved);
 
         string summary = options.WhatIf
             ? $"Files that would be purged: {purged}   Files that would be retained: {retained}"
             : $"Files purged: {purged}   Files retained: {retained}" + (failed > 0 ? $"   Failed: {failed}" : "");
+        if (options.RemoveEmptyFolders && options.Recurse)
+            summary += options.WhatIf ? $"   Folders that would be removed: {foldersRemoved}" : $"   Folders removed: {foldersRemoved}";
         if (folderErrors > 0)
             summary += $"   Folders skipped: {folderErrors}";
         _out.WriteLine($"{summary}   {stopwatch.Elapsed.TotalSeconds:f1} seconds");
@@ -194,6 +207,64 @@ public sealed class PurgeProcessor
             _out.WriteLine("NOTE: --whatif was set, no files were actually purged.");
 
         return failed > 0 || folderErrors > 0 ? ExitCodes.PartialFailure : ExitCodes.Success;
+    }
+
+    /// <summary>
+    /// Removes subfolders that this purge left empty: folders where a file was purged, or
+    /// where an emptied subfolder was removed, and that now hold nothing at all. Folders
+    /// that were already empty are left alone, and so is the folder named in the file spec.
+    /// With --whatif, reports what would be removed.
+    /// </summary>
+    private int RemoveEmptyFolders(IReadOnlyList<FileList> folders, HashSet<string> purgedPaths,
+                                   PurgeOptions options, ref int failed)
+    {
+        var removed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var everything = new EnumerationOptions { AttributesToSkip = 0, IgnoreInaccessible = false };
+        string verb = options.WhatIf ? "Would remove empty folder" : "Removing empty folder";
+
+        // The lists are in walk order (each folder before its subfolders), so going
+        // backwards handles every subfolder before its parent. Index 0 is the named folder.
+        for (int i = folders.Count - 1; i >= 1; i--)
+        {
+            if (folders[i].Folder is not { } path)
+                continue;
+
+            bool touched = folders[i].Items.Any(e => purgedPaths.Contains(e.File.FullName)) ||
+                           removed.Any(r => string.Equals(Path.GetDirectoryName(r), path, StringComparison.OrdinalIgnoreCase));
+            if (!touched)
+                continue;
+
+            bool empty;
+            try
+            {
+                // Purged files and removed folders still exist with --whatif, so leave them out.
+                empty = !Directory.EnumerateFileSystemEntries(path, "*", everything)
+                                  .Any(p => !purgedPaths.Contains(p) && !removed.Contains(p));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+            if (!empty)
+                continue;
+
+            _out.WriteLine($"{verb}: {path}");
+            if (!options.WhatIf)
+            {
+                try
+                {
+                    FolderWipe.RemoveEmptyFolder(path, obscureName: options.SecurityLevel > 0);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    _err.WriteLine($"   Unable to remove folder {path} - {(e is UnauthorizedAccessException ? "access denied" : e.Message)}");
+                    failed++;
+                    continue;
+                }
+            }
+            removed.Add(path);
+        }
+        return removed.Count;
     }
 
     private char Ask()
