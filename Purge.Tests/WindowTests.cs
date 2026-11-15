@@ -111,11 +111,20 @@ public sealed class ExplorerMenuTests : IDisposable
         Assert.Equal($"\"{exe}\" --folder \"%1\"", _classes.OpenSubKey(@"Directory\shell\Purge.PurgeFiles\command")!.GetValue(""));
         Assert.Equal($"\"{exe}\" --folder \"%V\"", _classes.OpenSubKey(@"Directory\Background\shell\Purge.PurgeFiles\command")!.GetValue(""));
         Assert.Equal($"\"{exe}\" --folder \"%1\"", _classes.OpenSubKey(@"Drive\shell\Purge.PurgeFiles\command")!.GetValue(""));
+        Assert.Equal($"\"{exe}\" --wipe \"%1\"", _classes.OpenSubKey(@"Directory\shell\Purge.SecureDelete\command")!.GetValue(""));
+        Assert.Null(_classes.OpenSubKey(@"Drive\shell\Purge.SecureDelete")); // never offered for whole drives
+        Assert.True(ExplorerMenu.IsUpToDate(exe, _classes));
+        Assert.False(ExplorerMenu.IsUpToDate(@"D:\Other\PurgeWindow.exe", _classes));
+
+        // A menu added by an older version (without the folder command) needs updating.
+        _classes.DeleteSubKeyTree(@"Directory\shell\Purge.SecureDelete");
+        Assert.False(ExplorerMenu.IsUpToDate(exe, _classes));
 
         ExplorerMenu.Remove(_classes);
 
         Assert.Null(ExplorerMenu.InstalledExePath(_classes));
         Assert.Null(_classes.OpenSubKey(@"Directory\shell\Purge.PurgeFiles"));
+        Assert.Null(_classes.OpenSubKey(@"Directory\shell\Purge.SecureDelete"));
         Assert.Null(_classes.OpenSubKey(@"Drive\shell\Purge.PurgeFiles"));
         ExplorerMenu.Remove(_classes); // removing twice is fine
     }

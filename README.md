@@ -173,9 +173,20 @@ File Explorer right-click menu:
   to keep, size limits, created or modified time, subfolders, overwrite passes and
   read-only files. **Preview** shows what would be purged; **Purge** stays disabled
   until you have previewed the current settings, and asks before deleting.
-* **Securely delete…** on one or more selected files lists them, lets you choose
-  the number of overwrite passes, and asks before deleting. Selected folders are
-  skipped.
+* **Securely delete…** on selected files and folders lists them (with how many
+  files each folder holds), lets you choose the number of overwrite passes, and
+  asks before deleting. Every file is overwritten and deleted; selected folders
+  are then removed along with all their subfolders.
+
+  Folder junctions and symbolic links inside a folder are removed as links only;
+  what they point to is never touched. If something can't be deleted (a file in
+  use, a read-only file without the box ticked), the rest is deleted, only the
+  folders still holding it are kept, and the window lists what was left.
+  Whole drives, the Windows and Program Files folders, `C:\Users` and your user
+  profile folder can't be securely deleted (folders inside your profile can).
+
+  "Purge files…" is different: it cleans up *inside* a folder by rules and never
+  removes folders, so a backup folder stays in place for the next backup.
 
 On Windows 11 the commands are under **Show more options** (or Shift+right-click);
 the short Windows 11 menu only lists signed, packaged apps.
@@ -267,6 +278,12 @@ launcher: it needs the `.dll` and `.json` files next to it.
 The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped exe,
 a SHA-256 checksum, and the README's changes section as release notes. The build
 fails without releasing if the tag doesn't match `<Version>`.
+
+## Changes in 2.6
+
+* **Securely delete…** now works on folders too: everything inside is overwritten
+  and deleted, and the folder itself is removed. After updating, open
+  `PurgeWindow.exe` and click **Update menu** to add it to the folder menu.
 
 ## Changes in 2.5
 

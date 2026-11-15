@@ -19,6 +19,7 @@ public static class ExplorerMenu
     private static readonly (string Parent, string Verb, string Text, string Arguments)[] Entries =
     [
         (@"*\shell", FileVerb, "Securely delete…", "--wipe \"%1\""),
+        (@"Directory\shell", FileVerb, "Securely delete…", "--wipe \"%1\""),
         (@"Directory\shell", FolderVerb, "Purge files…", "--folder \"%1\""),
         (@"Directory\Background\shell", FolderVerb, "Purge files…", "--folder \"%V\""),
         (@"Drive\shell", FolderVerb, "Purge files…", "--folder \"%1\""),
@@ -60,6 +61,24 @@ public static class ExplorerMenu
 
         foreach (var entry in Entries)
             root.DeleteSubKeyTree($@"{entry.Parent}\{entry.Verb}", throwOnMissingSubKey: false);
+    }
+
+    /// <summary>
+    /// True if every command is in the menu and runs <paramref name="exePath"/>; false if
+    /// any is missing (for example, added by an older version) or runs another copy.
+    /// </summary>
+    public static bool IsUpToDate(string exePath, RegistryKey? classes = null)
+    {
+        using var owned = classes is null ? OpenUserClasses() : null;
+        var root = classes ?? owned!;
+
+        foreach (var entry in Entries)
+        {
+            using var command = root.OpenSubKey($@"{entry.Parent}\{entry.Verb}\command");
+            if (command?.GetValue("") as string != $"\"{exePath}\" {entry.Arguments}")
+                return false;
+        }
+        return true;
     }
 
     /// <summary>

@@ -33,7 +33,8 @@ public sealed class SetupForm : Form
         var explain = Ui.Label(
             "Adds two commands to the right-click menu in File Explorer:\n\n" +
             "  •  Purge files…  on a folder: delete old files by pattern, always keeping the newest.\n" +
-            "  •  Securely delete…  on files: overwrite the selected files and delete them.\n\n" +
+            "  •  Securely delete…  on files and folders: overwrite every file and delete it, and\n" +
+            "      remove the selected folders with everything in them.\n\n" +
             "On Windows 11 they are under \"Show more options\" (or Shift+right-click). " +
             "The menu runs this copy of PurgeWindow.exe, so add it again if you move the file.", textWidth);
 
@@ -45,6 +46,7 @@ public sealed class SetupForm : Form
         useHeading.Font = heading.Font;
         var purgeFolder = Ui.Button("Purge files in a folder…", (_, _) => new PurgeForm().Show(this));
         var wipeFiles = Ui.Button("Securely delete files…", (_, _) => PickFilesToWipe());
+        var wipeFolder = Ui.Button("Securely delete a folder…", (_, _) => PickFolderToWipe());
         var close = Ui.Button("Close", (_, _) => Close());
         CancelButton = close;
 
@@ -54,7 +56,7 @@ public sealed class SetupForm : Form
         layout.Controls.Add(_menuStatus);
         layout.Controls.Add(Ui.Row(_add, _remove));
         layout.Controls.Add(useHeading);
-        layout.Controls.Add(Ui.Row(purgeFolder, wipeFiles));
+        layout.Controls.Add(Ui.Row(purgeFolder, wipeFiles, wipeFolder));
         layout.Controls.Add(Ui.ButtonBar(close));
         useHeading.Margin = new Padding(3, 18, 3, 6);
         Controls.Add(layout);
@@ -66,14 +68,17 @@ public sealed class SetupForm : Form
     {
         string? installed = ExplorerMenu.InstalledExePath();
         bool isThisCopy = installed is not null && string.Equals(installed, _exePath, StringComparison.OrdinalIgnoreCase);
+        bool upToDate = isThisCopy && ExplorerMenu.IsUpToDate(_exePath);
 
         _menuStatus.Text = installed is null
             ? "The commands are not in the menu."
-            : isThisCopy
+            : upToDate
                 ? "✔  The commands are in the menu."
-                : $"The menu runs another copy: {installed}\nClick Add to use this copy instead.";
+                : isThisCopy
+                    ? "The menu is from an older version. Click Update to add the new commands."
+                    : $"The menu runs another copy: {installed}\nClick Update to use this copy instead.";
         _add.Text = installed is null ? "Add to menu" : "Update menu";
-        _add.Enabled = !isThisCopy;
+        _add.Enabled = !upToDate;
         _remove.Enabled = installed is not null;
     }
 
@@ -98,5 +103,12 @@ public sealed class SetupForm : Form
         using var dialog = new OpenFileDialog { Multiselect = true, Title = "Files to securely delete" };
         if (dialog.ShowDialog(this) == DialogResult.OK)
             new WipeForm(dialog.FileNames).Show(this);
+    }
+
+    private void PickFolderToWipe()
+    {
+        using var dialog = new FolderBrowserDialog { Description = "Folder to securely delete, with everything in it" };
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+            new WipeForm([dialog.SelectedPath]).Show(this);
     }
 }
