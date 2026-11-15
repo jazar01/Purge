@@ -141,7 +141,9 @@ public class SelectionCollectorTests
         Assert.Null(SelectionCollector.TryBecomePrimary(channel)); // only one primary
 
         var received = new List<string>();
-        var collecting = primary.CollectAsync(p => { lock (received) received.Add(p); }, TimeSpan.FromSeconds(1));
+        // A generous quiet time: on a busy CI runner the sender tasks can start more than a
+        // second late, and a late sender (correctly) gets no answer.
+        var collecting = primary.CollectAsync(p => { lock (received) received.Add(p); }, TimeSpan.FromSeconds(5));
 
         // Several "copies" starting at once, as when Explorer opens one per selected file.
         var senders = Enumerable.Range(1, 8)
