@@ -198,10 +198,39 @@ out again. For scripted setups, `PurgeWindow.exe --add-to-explorer` and
 
 ## Secure wipe
 
-With `--security-level` greater than 0, each file is overwritten that many times
-with cryptographically random bytes, truncated, renamed to a random name, and then
-deleted. This is best effort: SSDs, copy-on-write or compressed file systems, and
-Volume Shadow Copies may keep old data elsewhere on the disk.
+With `--security-level` greater than 0 (or **Overwrite passes** in the windows),
+each file is overwritten that many times with cryptographically random bytes,
+including any hidden NTFS alternate data streams. It is then truncated, renamed
+to a random name, and deleted.
+
+**How much does that protect?** On an ordinary hard disk, one pass destroys the
+file's contents; more passes add time but no real protection. Beyond that, a
+wipe only reaches the file as it is now, where it is now:
+
+* **SSDs and flash drives** write each change to new memory cells and erase the
+  old ones later, on their own schedule. No program can guarantee the old data is
+  gone. The reliable protection is **full-disk encryption (BitLocker)**, turned
+  on before the data was written: deleted data is then unreadable without the key.
+* **Compressed, sparse and EFS-encrypted files**, and drives formatted with
+  **ReFS**, may have the new data written somewhere else, leaving the old data in
+  place.
+* **Network drives** store the data on the server, which may keep snapshots.
+* **Other copies** are untouched: Volume Shadow Copies and restore points,
+  backups, OneDrive (or other cloud) version history and recycle bin, and the
+  older versions many programs leave in free space each time they save.
+* The file's **name** can remain in the NTFS change journal.
+
+Purge checks for these and prints a note (or shows a ⚠ line in the Securely
+delete window) when they apply, for example:
+
+```
+Purging (age 45 days): D:\Finance\2026-09 statement.pdf
+   Note: Solid-state drive D: - SSDs and flash drives write to new memory cells and erase the old ones later, so overwriting can't guarantee the old data is gone. Full-disk encryption (BitLocker) is the reliable protection.
+```
+
+Notes about a drive are shown once per run. The notes don't stop the purge or
+change the exit code. To clear old data from a hard disk's free space, run
+`cipher /w:D:\` (Windows' built-in free-space wiper).
 
 ## Building
 
@@ -238,6 +267,13 @@ launcher: it needs the `.dll` and `.json` files next to it.
 The build then publishes a GitHub Release named "Purge 2.4.0" with the zipped exe,
 a SHA-256 checksum, and the README's changes section as release notes. The build
 fails without releasing if the tag doesn't match `<Version>`.
+
+## Changes in 2.5
+
+* Secure wipe also overwrites NTFS alternate data streams.
+* Purge now warns when overwriting can't be relied on: SSDs, compressed, sparse
+  and EFS-encrypted files, ReFS and network drives, and OneDrive folders.
+* The README explains what a secure wipe does and doesn't protect against.
 
 ## Changes in 2.4
 

@@ -17,6 +17,8 @@ public sealed class WipeForm : Form
     private readonly NumericUpDown _passes;
     private readonly CheckBox _force;
     private readonly Label _status;
+    private readonly Label _warnings;
+    private readonly Dictionary<string, IReadOnlyList<WipeWarning>> _fileWarnings = new(StringComparer.OrdinalIgnoreCase);
     private readonly Button _delete;
     private readonly Button _close;
     private bool _gathering;
@@ -55,7 +57,12 @@ public sealed class WipeForm : Form
         _list.Columns.Add("Size", 80, HorizontalAlignment.Right);
         _list.Columns.Add("Status", 140);
 
+        _warnings = Ui.Label("", maxWidth: 690);
+        _warnings.ForeColor = Color.FromArgb(150, 80, 0);
+        _warnings.Visible = false;
+
         _passes = Ui.Number(1, 50, width: 55);
+        _passes.ValueChanged += (_, _) => UpdateState();
         _force = new CheckBox { Text = "Also delete read-only files", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(24, 6, 3, 3) };
         var options = Ui.Row(Ui.Label("Overwrite passes:"), _passes, Ui.Label("(0 = delete without overwriting)"), _force);
 
@@ -70,8 +77,10 @@ public sealed class WipeForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.Controls.Add(intro);
         layout.Controls.Add(_list);
+        layout.Controls.Add(_warnings);
         layout.Controls.Add(options);
         layout.Controls.Add(Ui.ButtonBar(_status, _delete, _close));
         Controls.Add(layout);
@@ -137,6 +146,7 @@ public sealed class WipeForm : Form
             item.SubItems.Add(ByteSize.Format(file.Length));
             item.SubItems.Add(file.IsReadOnly ? "Read-only" : "");
             item.Tag = file;
+            _fileWarnings[file.FullName] = WipeCheck.For(file);
         }
         else
         {
@@ -160,6 +170,34 @@ public sealed class WipeForm : Form
         _status.Text = _gathering
             ? "Gathering the selected files…"
             : pending.Count == 0 ? "No files to delete." : $"{Plural(pending.Count, "file")}, {ByteSize.Format(total)}";
+
+        if (!_busy)
+        {
+            _warnings.Text = WarningText;
+            _warnings.Visible = _warnings.Text.Length > 0;
+        }
+    }
+
+    /// <summary>
+    /// Why overwriting may not destroy the listed files' old contents, or "" if there is
+    /// no known reason (or the files won't be overwritten at all).
+    /// </summary>
+    public string WarningText
+    {
+        get
+        {
+            if (_passes.Value == 0)
+                return "";
+
+            var lines = PendingItems
+                .SelectMany(i => _fileWarnings.GetValueOrDefault(((FileInfo)i.Tag!).FullName, []))
+                .GroupBy(w => w.Title)
+                .Select(g => g.First().AppliesToDrive || g.Count() == 1
+                    ? $"⚠  {g.Key} - {g.First().Detail}"
+                    : $"⚠  {g.Key} ({g.Count()} files) - {g.First().Detail}")
+                .ToList();
+            return string.Join("\n", lines);
+        }
     }
 
     private async Task DeleteAsync()

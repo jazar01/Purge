@@ -109,6 +109,7 @@ public sealed class PurgeProcessor
 
         int purged = 0, retained = 0, failed = 0;
         bool confirmAll = false, quit = false;
+        var notedDrives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string verb = options.WhatIf ? "Would purge" : "Purging";
 
         foreach (var entry in folders.SelectMany(f => f.Items))
@@ -121,6 +122,16 @@ public sealed class PurgeProcessor
 
             string age = selection.AgeBy == AgeBy.Created ? $"created {entry.Age} days ago" : $"age {entry.Age} days";
             _out.WriteLine($"{verb} ({age}): {entry.File.FullName}");
+
+            // Say when overwriting can't be relied on. Drive-wide notes are shown once.
+            if (options.SecurityLevel > 0)
+            {
+                foreach (var warning in WipeCheck.For(entry.File))
+                {
+                    if (!warning.AppliesToDrive || notedDrives.Add(warning.Title))
+                        _out.WriteLine($"   Note: {warning}");
+                }
+            }
 
             if (options.WhatIf)
             {
