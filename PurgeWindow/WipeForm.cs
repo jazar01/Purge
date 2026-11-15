@@ -355,8 +355,16 @@ public sealed class WipeForm : Form
             else if (item.Tag is FolderItem folder)
             {
                 var contents = folder.Contents!;
-                var progress = new Progress<int>(n => item.SubItems[3].Text = $"Deleting {n} of {contents.Files.Count}…");
+                // Progress reports are posted to the window and can arrive after the delete
+                // has finished; ignore those so they don't overwrite the final status.
+                bool finished = false;
+                var progress = new Progress<int>(n =>
+                {
+                    if (!finished)
+                        item.SubItems[3].Text = $"Deleting {n} of {contents.Files.Count}…";
+                });
                 var result = await Task.Run(() => FolderWipe.Delete(contents, passes, force, progress));
+                finished = true;
                 deleted += result.FilesDeleted;
 
                 if (result.FolderRemoved && result.Failures.Count == 0)
